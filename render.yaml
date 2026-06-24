@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: kintone-auto-input
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: KINTONE_DOMAIN
+        value: aichishiho.cybozu.com
+      - key: KINTONE_APP_ID
+        value: "57"
+      - key: KINTONE_GUEST_ID
+        value: "4"
+      - key: KINTONE_TOKEN
+        sync: false
+      - key: CHATWORK_TOKEN
+        sync: false
+      - key: CHATWORK_ROOM_ID
+        value: "236606241"
+      - key: BOX_TOKEN
+        sync: false

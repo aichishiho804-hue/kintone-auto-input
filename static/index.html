@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kintone 自動入力システム</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Hiragino Sans", "Meiryo", sans-serif; background: #f0f4f8; color: #2d3748; min-height: 100vh; }
+
+  header { background: #2b6cb0; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header span { font-size: 12px; opacity: .8; }
+
+  .container { max-width: 800px; margin: 32px auto; padding: 0 16px; }
+
+  .card { background: white; border-radius: 12px; padding: 28px; margin-bottom: 24px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+  .card h2 { font-size: 15px; font-weight: 700; color: #2b6cb0; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+  .card h2::before { content: attr(data-step); background: #2b6cb0; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 13px; font-weight: 600; color: #4a5568; }
+  .form-group input { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; font-size: 14px; transition: border-color .2s; outline: none; }
+  .form-group input:focus { border-color: #2b6cb0; }
+
+  .btn { padding: 12px 28px; border-radius: 8px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: all .2s; }
+  .btn-primary { background: #2b6cb0; color: white; width: 100%; margin-top: 16px; }
+  .btn-primary:hover { background: #2c5282; }
+  .btn-primary:disabled { background: #a0aec0; cursor: not-allowed; }
+  .btn-success { background: #38a169; color: white; width: 100%; }
+  .btn-success:hover { background: #2f855a; }
+
+  .field-list { display: flex; flex-direction: column; gap: 10px; }
+  .field-item { display: grid; grid-template-columns: 140px 1fr 1fr; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .field-item.auto { border-color: #c6f6d5; background: #f0fff4; }
+  .field-item.manual { border-color: #feebc8; background: #fffaf0; }
+  .field-label { font-size: 13px; font-weight: 600; color: #4a5568; }
+  .field-value { font-size: 14px; color: #2d3748; }
+  .field-source { font-size: 11px; color: #718096; }
+  .badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 99px; font-weight: 700; }
+  .badge-auto { background: #c6f6d5; color: #276749; }
+  .badge-manual { background: #feebc8; color: #7b341e; }
+
+  .field-item input, .field-item select {
+    border: 1.5px solid #e2e8f0; border-radius: 6px; padding: 6px 10px;
+    font-size: 13px; outline: none; width: 100%;
+  }
+  .field-item input:focus, .field-item select:focus { border-color: #2b6cb0; }
+
+  .alert { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+  .alert-info { background: #ebf8ff; border: 1px solid #bee3f8; color: #2c5282; }
+  .alert-error { background: #fff5f5; border: 1px solid #fed7d7; color: #c53030; }
+  .alert-success { background: #f0fff4; border: 1px solid #c6f6d5; color: #276749; }
+
+  .loading { text-align: center; padding: 32px; color: #718096; }
+  .spinner { width: 36px; height: 36px; border: 3px solid #e2e8f0; border-top-color: #2b6cb0; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .message-preview { background: #f7fafc; border-radius: 8px; padding: 12px; font-size: 12px; color: #4a5568; white-space: pre-wrap; line-height: 1.6; margin-top: 12px; border-left: 3px solid #2b6cb0; }
+  .message-preview-label { font-size: 11px; font-weight: 700; color: #718096; margin-top: 16px; margin-bottom: 4px; }
+
+  #step2, #step3 { display: none; }
+  .section-title { font-size: 12px; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+  <div>
+    <h1>kintone 自動入力システム</h1>
+    <span>BOX・Chatwork連携 顧客データ自動入力</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- STEP 1: 入力 -->
+  <div class="card" id="step1">
+    <h2 data-step="1">顧客情報の入力</h2>
+    <div id="step1-alert"></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>顧客名（kintone記載の名前）</label>
+        <input type="text" id="customer-name" placeholder="例：小田直史" />
+      </div>
+      <div class="form-group">
+        <label>kintone レコードID</label>
+        <input type="text" id="record-id" placeholder="例：8920" />
+      </div>
+    </div>
+    <button class="btn btn-primary" id="search-btn" onclick="doSearch()">データを自動取得する</button>
+  </div>
+
+  <!-- STEP 2: 確認 -->
+  <div class="card" id="step2">
+    <h2 data-step="2">取得データの確認・編集</h2>
+    <div id="step2-alert"></div>
+
+    <div class="section-title">🤖 自動入力項目（BOX・Chatworkから取得）</div>
+    <div class="field-list" id="auto-fields"></div>
+
+    <div class="section-title">✏️ 手動入力が必要な項目</div>
+    <div class="field-list" id="manual-fields"></div>
+
+    <div id="chatwork-preview-area"></div>
+
+    <button class="btn btn-success" style="margin-top:24px" onclick="doUpdate()">kintoneに入力する</button>
+  </div>
+
+  <!-- STEP 3: 完了 -->
+  <div class="card" id="step3">
+    <h2 data-step="3">入力完了</h2>
+    <div id="step3-result"></div>
+    <button class="btn btn-primary" style="margin-top:16px" onclick="reset()">別の顧客を入力する</button>
+  </div>
+
+</div>
+
+<script>
+let currentData = null;
+
+const MANUAL_FIELDS = {
+  "受注額": { label: "受注額（円）", type: "number", placeholder: "例：197000" },
+  "LINE登録": { label: "LINE登録", type: "select", options: ["有", "無", "－"] },
+};
+
+function showAlert(containerId, msg, type = "error") {
+  document.getElementById(containerId).innerHTML =
+    msg ? `<div class="alert alert-${type}">${msg}</div>` : "";
+}
+
+async function doSearch() {
+  const name = document.getElementById("customer-name").value.trim();
+  const id = document.getElementById("record-id").value.trim();
+  if (!name || !id) {
+    showAlert("step1-alert", "顧客名とレコードIDを入力してください");
+    return;
+  }
+
+  const btn = document.getElementById("search-btn");
+  btn.disabled = true;
+  btn.textContent = "取得中...";
+  showAlert("step1-alert", "");
+
+  try {
+    const res = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_name: name, record_id: id }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "取得エラー");
+    }
+    currentData = await res.json();
+    renderStep2(currentData);
+    document.getElementById("step2").style.display = "block";
+    document.getElementById("step2").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    showAlert("step1-alert", `エラー: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "データを自動取得する";
+  }
+}
+
+function renderStep2(data) {
+  const autoEl = document.getElementById("auto-fields");
+  const manEl = document.getElementById("manual-fields");
+  autoEl.innerHTML = "";
+  manEl.innerHTML = "";
+
+  const LABELS = {
+    "都道府県": "都道府県", "市町村名": "市町村名", "町名": "町名",
+    "ふりがな": "ふりがな", "和暦年": "和暦年", "和暦月": "和暦月",
+    "和暦日": "和暦日", "依頼人年齢": "依頼人年齢", "面談担当者": "面談担当者",
+    "受任日": "受任日", "完了予定日": "完了予定日", "面談": "面談",
+    "受任": "受任（有/無）", "商品選択反": "商品選択",
+  };
+
+  for (const [key, val] of Object.entries(data.auto_fields)) {
+    const label = LABELS[key] || key;
+    const src = data.sources[key] || data.sources["住所系"] || data.sources["和暦・年齢"] || "";
+    const div = document.createElement("div");
+    div.className = "field-item auto";
+    div.innerHTML = `
+      <div class="field-label">${label} <span class="badge badge-auto">自動</span></div>
+      <input type="text" id="field-${key}" value="${val}" data-key="${key}" />
+      <div class="field-source">${src}</div>
+    `;
+    autoEl.appendChild(div);
+  }
+
+  for (const [key, cfg] of Object.entries(MANUAL_FIELDS)) {
+    const div = document.createElement("div");
+    div.className = "field-item manual";
+    let input = "";
+    if (cfg.type === "select") {
+      input = `<select id="field-${key}" data-key="${key}">
+        <option value="">未入力</option>
+        ${cfg.options.map(o => `<option value="${o}">${o}</option>`).join("")}
+      </select>`;
+    } else {
+      input = `<input type="${cfg.type}" id="field-${key}" data-key="${key}" placeholder="${cfg.placeholder || ""}" />`;
+    }
+    div.innerHTML = `
+      <div class="field-label">${cfg.label} <span class="badge badge-manual">手動</span></div>
+      ${input}
+      <div class="field-source">手動入力してください</div>
+    `;
+    manEl.appendChild(div);
+  }
+
+  if (data.chatwork_message) {
+    document.getElementById("chatwork-preview-area").innerHTML = `
+      <div class="message-preview-label">📨 検出したChatworkメッセージ</div>
+      <div class="message-preview">${escapeHtml(data.chatwork_message)}</div>
+    `;
+  }
+
+  showAlert("step2-alert",
+    `【 ${data.customer_name} 】のデータを取得しました。内容を確認して「kintoneに入力する」を押してください。`,
+    "info"
+  );
+}
+
+async function doUpdate() {
+  const fields = {};
+  document.querySelectorAll("[data-key]").forEach(el => {
+    if (el.value !== "") fields[el.dataset.key] = el.value;
+  });
+
+  try {
+    const res = await fetch("/api/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ record_id: currentData.record_id, fields }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "更新エラー");
+    }
+    const result = await res.json();
+    document.getElementById("step3").style.display = "block";
+    document.getElementById("step3-result").innerHTML = `
+      <div class="alert alert-success">
+        <strong>${currentData.customer_name}</strong> のデータをkintoneに入力しました。<br>
+        レコードID: ${currentData.record_id}　/　リビジョン: ${result.revision}
+      </div>
+      <div style="margin-top:12px; font-size:13px; color:#4a5568;">
+        入力項目数: <strong>${Object.keys(fields).length}件</strong>
+      </div>
+    `;
+    document.getElementById("step3").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    showAlert("step2-alert", `エラー: ${e.message}`);
+  }
+}
+
+function reset() {
+  document.getElementById("customer-name").value = "";
+  document.getElementById("record-id").value = "";
+  document.getElementById("step2").style.display = "none";
+  document.getElementById("step3").style.display = "none";
+  showAlert("step1-alert", "");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  currentData = null;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+</script>
+</body>
+</html>
