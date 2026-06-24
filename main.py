@@ -171,7 +171,8 @@ async def search_chatwork(name: str, box_url: str = "") -> dict:
             continue
 
         sender = msg["account"]["name"]
-        sender_surname = re.split(r"[\s　]", sender)[0]
+        # 姓のみ抽出：スペースで分割した最初の要素の先頭2文字
+        sender_surname = re.split(r"[\s　]", sender)[0][:2]
 
         return {
             "面談担当者": sender_surname,
