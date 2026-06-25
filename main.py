@@ -626,6 +626,180 @@ async def api_create_folders(req: JyuninSearchRequest):
     return {"folder_name": folder_name, "subfolders": results}
 
 
+# ── BOX書類スキャン ────────────────────────────────────────
+
+WAREKI_OFFSETS = {"明治": 1867, "大正": 1911, "昭和": 1925, "平成": 1988, "令和": 2018}
+
+def parse_date_from_text(text: str) -> Optional[str]:
+    m = re.search(r'(明治|大正|昭和|平成|令和)\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日', text)
+    if m:
+        year = WAREKI_OFFSETS[m.group(1)] + int(m.group(2))
+        return f"{year}-{int(m.group(3)):02d}-{int(m.group(4)):02d}"
+    m = re.search(r'(\d{4})\s*年\s*(\d+)\s*月\s*(\d+)\s*日', text)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return None
+
+
+async def get_box_folder_files_text(folder_id: str) -> str:
+    token = await get_box_access_token()
+    if not token:
+        return ""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"https://api.box.com/2.0/folders/{folder_id}/items",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": "id,name,type", "limit": 100},
+        )
+    if r.status_code != 200:
+        return ""
+    texts = []
+    for item in r.json().get("entries", []):
+        if item["type"] == "file":
+            t = await get_box_text(item["id"])
+            if t.strip():
+                texts.append(f"==[{item['name']}]==\n{t}")
+    return "\n".join(texts)
+
+
+def parse_docs_for_jyunin(text: str) -> tuple:
+    fields: dict = {}
+    sources: dict = {}
+
+    # 被相続人出生日 (西暦3) — 戸籍謄本「出生 昭和XX年…」
+    m = re.search(r'出\s*生\s+((?:明治|大正|昭和|平成|令和)\s*\d+\s*年\s*\d+\s*月\s*\d+\s*日)', text)
+    if m:
+        d = parse_date_from_text(m.group(1))
+        if d:
+            fields["西暦3"] = d
+            sources["西暦3"] = "戸籍書類（被相続人出生日）"
+
+    # 被相続人本籍 (address_0) — 都道府県で始まる本籍行
+    m = re.search(
+        r'本\s*籍\s+((?:北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|'
+        r'新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|'
+        r'和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|'
+        r'大分県|宮崎県|鹿児島県|沖縄県)[^\n]{0,60})',
+        text,
+    )
+    if m:
+        fields["address_0"] = m.group(1).strip()
+        sources["address_0"] = "戸籍書類（本籍）"
+
+    # 戸主/筆頭者 (文字列__1行__4)
+    m = re.search(r'(?:筆\s*頭\s*者|戸\s*主)\s+([^\n\d]{2,20})', text)
+    if m:
+        name = re.sub(r'\s+', '', m.group(1)).strip()
+        if name:
+            fields["文字列__1行__4"] = name
+            sources["文字列__1行__4"] = "戸籍書類（戸主）"
+
+    # 依頼者出生日 (西暦) — 免許証「生年月日 昭和XX年…」
+    for m in re.finditer(r'生\s*年\s*月\s*日\s+((?:明治|大正|昭和|平成|令和)\s*\d+\s*年\s*\d+\s*月\s*\d+\s*日)', text):
+        d = parse_date_from_text(m.group(1))
+        if d and "西暦" not in fields:
+            fields["西暦"] = d
+            sources["西暦"] = "免許証（依頼者出生日）"
+            break
+
+    # 依頼者本籍 (address_2) — 免許証の本籍欄（address_0未取得時のみ）
+    if "address_0" not in fields:
+        m = re.search(r'本\s*籍\s+([^\n]{2,40})', text)
+        if m:
+            fields["address_2"] = m.group(1).strip()
+            sources["address_2"] = "免許証（本籍）"
+
+    # 被相続人から見た依頼者の続柄 — 戸籍「長男/長女/配偶者…」
+    if "被相続人から見た依頼者の続柄" not in fields:
+        m = re.search(r'(長男|長女|次男|次女|三男|三女|四男|四女|配偶者|妻|夫|養子|養女)', text)
+        if m:
+            fields["被相続人から見た依頼者の続柄"] = m.group(1)
+            sources["被相続人から見た依頼者の続柄"] = "戸籍書類（続柄）"
+
+    # 相続人 (相続人フィールド) — 続柄に続く氏名を複数抽出
+    heirs = re.findall(r'(?:長男|長女|次男|次女|三男|三女|配偶者)\s+([^\n\s]{2,8})', text)
+    if heirs:
+        fields["相続人"] = "、".join(dict.fromkeys(heirs)[:5])
+        sources["相続人"] = "戸籍書類（相続人）"
+
+    return fields, sources
+
+
+class ScanDocsRequest(BaseModel):
+    hibikyo_record_id: str
+    jyunin_record_id: str
+    customer_name: str
+
+
+@app.post("/api/jyunin/scan_docs")
+async def api_scan_docs(req: ScanDocsRequest):
+    folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, req.customer_name)
+    if not folder_id:
+        raise HTTPException(status_code=404, detail=f"BOXに「{req.customer_name}」フォルダが見つかりません。")
+
+    # サブフォルダ一覧取得
+    token = await get_box_access_token()
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"https://api.box.com/2.0/folders/{folder_id}/items",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": "id,name,type", "limit": 100},
+        )
+    subfolders = {item["name"]: item["id"] for item in r.json().get("entries", []) if item["type"] == "folder"}
+
+    # ①③⑥を優先してスキャン
+    scan_targets = ["⑥完了その他", "①戸籍・印鑑証明書・免許証", "③通帳・証券会社資料", "②登記情報・評価証明・名寄"]
+    combined_text = ""
+    scanned = []
+    for sf_name in scan_targets:
+        sf_id = subfolders.get(sf_name)
+        if sf_id:
+            t = await get_box_folder_files_text(sf_id)
+            if t.strip():
+                combined_text += "\n" + t
+                scanned.append(sf_name)
+
+    if not combined_text.strip():
+        return {"message": "書類が見つかりませんでした。BOXに書類をアップロードしてから実行してください。", "fields": {}, "sources": {}, "scanned": []}
+
+    extracted, sources = parse_docs_for_jyunin(combined_text)
+    if not extracted:
+        return {"message": "書類を読み取りましたが、対象フィールドのデータが抽出できませんでした。", "fields": {}, "sources": {}, "scanned": scanned}
+
+    # 現在のapp56レコードを取得して未入力フィールドのみ更新
+    async with httpx.AsyncClient(timeout=10) as client:
+        r56 = await client.get(
+            f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
+            headers={"X-Cybozu-API-Token": JYUNIN_TOKEN},
+            params={"app": JYUNIN_APP_ID, "id": req.jyunin_record_id},
+        )
+    current = r56.json().get("record", {}) if r56.status_code == 200 else {}
+
+    update_body = {}
+    updated = {}
+    for key, val in extracted.items():
+        if not current.get(key, {}).get("value") and val:
+            update_body[key] = {"value": val}
+            updated[key] = val
+
+    if update_body:
+        async with httpx.AsyncClient(timeout=10) as client:
+            ru = await client.put(
+                f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
+                headers={"X-Cybozu-API-Token": JYUNIN_TOKEN, "Content-Type": "application/json; charset=utf-8"},
+                json={"app": JYUNIN_APP_ID, "id": req.jyunin_record_id, "record": update_body},
+            )
+        if ru.status_code != 200:
+            raise HTTPException(status_code=ru.status_code, detail=f"kintone更新エラー: {ru.text}")
+
+    return {
+        "message": f"{len(updated)}件のフィールドを自動入力しました。" if updated else "新たに入力できる項目はありませんでした（既入力済）。",
+        "fields": updated,
+        "sources": sources,
+        "scanned": scanned,
+    }
+
+
 @app.get("/api/debug/box_search")
 async def debug_box_search(name: str):
     results = {"search_name": name, "parent_folder_id": BOX_JYUNIN_PARENT_FOLDER}

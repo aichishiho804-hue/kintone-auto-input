@@ -65,7 +65,7 @@
   .message-preview { background: #f7fafc; border-radius: 8px; padding: 12px; font-size: 12px; color: #4a5568; white-space: pre-wrap; line-height: 1.6; margin-top: 12px; border-left: 3px solid #2b6cb0; }
   .message-preview-label { font-size: 11px; font-weight: 700; color: #718096; margin-top: 16px; margin-bottom: 4px; }
 
-  #step2, #step3, #step4, #step5 { display: none; }
+  #step2, #step3, #step4, #step5, #step6 { display: none; }
   .section-title { font-size: 12px; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 8px; }
 
   .folder-result { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
@@ -150,6 +150,17 @@
       <button class="btn btn-orange" id="folder-btn" onclick="doCreateFolders()">BOXに7フォルダを自動作成する</button>
     </div>
     <div id="folder-result"></div>
+    <button class="btn btn-primary" style="margin-top:12px" onclick="reset()">別の顧客を入力する</button>
+  </div>
+
+  <!-- STEP 6: BOX書類スキャン -->
+  <div class="card" id="step6">
+    <h2 data-step="6" class="green">BOX書類から追加自動入力</h2>
+    <div class="alert alert-info" style="font-size:13px; margin-bottom:16px;">
+      ①②③⑥フォルダにアップロードされた書類（戸籍謄本・免許証など）を読み取り、受任管理表の未入力項目を自動入力します。
+    </div>
+    <button class="btn btn-orange" id="scan-btn" onclick="doScanDocs()">BOX書類を読み取ってkintoneに追加入力する</button>
+    <div id="scan-result" style="margin-top:16px;"></div>
     <button class="btn btn-primary" style="margin-top:12px" onclick="reset()">別の顧客を入力する</button>
   </div>
 
@@ -442,6 +453,9 @@ async function doCreateFolders() {
     html += `</div>`;
     document.getElementById("folder-result").innerHTML = html;
     document.getElementById("box-folder-area").style.display = "none";
+    // Step6を表示
+    document.getElementById("step6").style.display = "block";
+    document.getElementById("step6").scrollIntoView({ behavior: "smooth" });
   } catch (e) {
     document.getElementById("folder-result").innerHTML =
       `<div class="alert alert-error" style="margin-top:8px">エラー: ${e.message}</div>`;
@@ -451,10 +465,59 @@ async function doCreateFolders() {
   }
 }
 
+async function doScanDocs() {
+  const btn = document.getElementById("scan-btn");
+  btn.disabled = true;
+  btn.textContent = "書類を読み取り中...";
+  document.getElementById("scan-result").innerHTML = "";
+
+  try {
+    const res = await fetch("/api/jyunin/scan_docs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hibikyo_record_id: currentData.record_id,
+        jyunin_record_id: currentJyuninData.jyunin_record_id,
+        customer_name: currentJyuninData.folder_name || currentData.customer_name,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.detail || "読み取りエラー");
+
+    let html = `<div class="alert alert-success">${result.message}</div>`;
+    if (result.scanned && result.scanned.length > 0) {
+      html += `<p style="font-size:12px;color:#718096;margin-top:8px">スキャン済フォルダ: ${result.scanned.join("、")}</p>`;
+    }
+    if (Object.keys(result.fields).length > 0) {
+      const LABELS = {
+        "西暦3": "被相続人出生日", "address_0": "被相続人本籍", "文字列__1行__4": "戸主",
+        "被相続人から見た依頼者の続柄": "続柄", "西暦": "依頼者出生日",
+        "address_2": "依頼者本籍", "相続人": "相続人",
+      };
+      html += `<div class="field-list" style="margin-top:12px">`;
+      for (const [k, v] of Object.entries(result.fields)) {
+        html += `<div class="field-item auto">
+          <span class="field-label">${LABELS[k] || k} <span class="badge badge-auto">自動</span></span>
+          <span class="field-value">${v}</span>
+          <span class="field-source">${result.sources[k] || ""}</span>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+    document.getElementById("scan-result").innerHTML = html;
+  } catch (e) {
+    document.getElementById("scan-result").innerHTML =
+      `<div class="alert alert-error">エラー: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "BOX書類を読み取ってkintoneに追加入力する";
+  }
+}
+
 function reset() {
   document.getElementById("customer-name").value = "";
   document.getElementById("record-id").value = "";
-  ["step2","step3","step4","step5"].forEach(id => document.getElementById(id).style.display = "none");
+  ["step2","step3","step4","step5","step6"].forEach(id => document.getElementById(id).style.display = "none");
   showAlert("step1-alert", "");
   document.getElementById("folder-result").innerHTML = "";
   document.getElementById("box-folder-area").style.display = "block";
