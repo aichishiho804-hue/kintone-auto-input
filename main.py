@@ -104,7 +104,10 @@ async def get_box_text(file_id: str) -> str:
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
             f"https://api.box.com/2.0/files/{file_id}",
-            headers={"Authorization": f"Bearer {BOX_TOKEN}"},
+            headers={
+                "Authorization": f"Bearer {BOX_TOKEN}",
+                "X-Rep-Hints": "[extracted_text]",
+            },
             params={"fields": "representations"},
         )
         if r.status_code != 200:
@@ -127,13 +130,47 @@ def extract_kana_from_box(text: str, name: str) -> Optional[str]:
     for m in matches:
         kana = m.strip()
         if len(kana) >= 3:
-            # カタカナ→ひらがな
             hiragana = "".join(
                 chr(ord(c) - 0x60) if "ァ" <= c <= "ン" else c
                 for c in kana
             ).replace("　", "").replace(" ", "")
             return hiragana
     return None
+
+
+def extract_address_from_box(text: str) -> dict:
+    """BOX連絡票から住所・郵便番号を抽出"""
+    result = {}
+
+    # 「住所 (〒444-0948) 岡崎市西本郷町字和志山２４１番地１」パターン
+    addr_match = re.search(r'住所\s*[（(〒]?\s*〒?([\d-]{7,8})[）)]?\s*(.+)', text)
+    if addr_match:
+        result["文字列__1行_"] = addr_match.group(1).replace("-", "-")  # 郵便番号
+        addr_text = addr_match.group(2).strip()
+
+        # 全角数字→半角に正規化
+        addr_text = addr_text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+
+        # 都道府県が含まれる場合
+        if re.match(r'.+?[都道府県]', addr_text):
+            pref, city, town = extract_address_parts(addr_text)
+            result["都道府県"] = pref
+            result["市町村名"] = city
+            result["町名"] = town
+            result["住所"] = addr_text
+        else:
+            # 都道府県なし（市区町村から）
+            city_match = re.match(r'^(.+?[市区町村郡])', addr_text)
+            if city_match:
+                city = city_match.group(1)
+                rest = addr_text[len(city):]
+                town = re.sub(r'字', '', rest)
+                town = re.sub(r'[\d０-９]+番地.*$', '', town).strip()
+                result["市町村名"] = city
+                result["町名"] = town
+                result["住所"] = addr_text  # 都道府県なしでも住所欄に入力
+
+    return result
 
 
 # ── Chatwork ───────────────────────────────────────────────
@@ -233,14 +270,24 @@ async def api_search(req: SearchRequest):
         box_url = m2.group(1)
         box_file_id = m2.group(2)
 
-    # 2. BOX連絡票からふりがな抽出
+    # 2. BOX連絡票からふりがな・住所を抽出
     if box_file_id:
         box_text = await get_box_text(box_file_id)
         if box_text:
+            # ふりがな
             kana = extract_kana_from_box(box_text, req.customer_name)
             if kana:
                 auto["ふりがな"] = kana
                 sources["ふりがな"] = "BOX連絡票から抽出"
+
+            # 住所（kintoneが空の場合はBOXから取得）
+            if not address:
+                box_addr = extract_address_from_box(box_text)
+                for key, val in box_addr.items():
+                    if val:
+                        auto[key] = val
+                if box_addr:
+                    sources["住所系"] = "BOX連絡票から抽出"
 
     # 3. Chatwork検索
     cw = await search_chatwork(req.customer_name, box_url)
