@@ -306,7 +306,7 @@ async def api_search(req: SearchRequest):
             auto["面談"] = "済"
             sources["面談"] = "Chatwork面談報告から"
         if cw.get("受任"):
-            auto["受任"] = "有"
+            auto["ドロップダウン_6"] = "有"
             sources["受任"] = 'Chatwork「ご依頼をいただきました」から'
         if cw.get("商品選択反"):
             auto["商品選択反"] = cw["商品選択反"]
