@@ -579,18 +579,27 @@ async def api_jyunin_update(req: JyuninUpdateRequest):
 
 @app.post("/api/jyunin/create_folders")
 async def api_create_folders(req: JyuninSearchRequest):
-    # 顧客名でBOXフォルダを検索
-    clean_name = re.sub(r"^テスト用", "", req.customer_name).strip()
-    folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, clean_name)
+    # kintone受任管理表から相談者名（依頼者名）を取得してBOXフォルダを検索
+    async with httpx.AsyncClient(timeout=10) as client:
+        r56 = await client.get(
+            f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/records.json",
+            headers={"X-Cybozu-API-Token": JYUNIN_TOKEN},
+            params={"app": JYUNIN_APP_ID, "query": f'反響レコード番号 = {req.hibikyo_record_id}', "fields[0]": "相談者名"},
+        )
+    folder_name = req.customer_name  # フォールバック
+    if r56.status_code == 200 and r56.json().get("records"):
+        folder_name = r56.json()["records"][0].get("相談者名", {}).get("value", "") or req.customer_name
+
+    folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, folder_name)
     if not folder_id:
-        raise HTTPException(status_code=404, detail=f"BOXに「{clean_name}」フォルダが見つかりません。kintoneによるフォルダ作成後に実行してください。")
+        raise HTTPException(status_code=404, detail=f"BOXに「{folder_name}」フォルダが見つかりません。kintoneによるフォルダ作成完了後に実行してください。")
 
     results = []
     for name in BOX_SUBFOLDERS:
         result = await create_box_subfolder(folder_id, name)
         results.append({"name": name, "status": "作成済" if result == "exists" else ("成功" if result else "失敗")})
 
-    return {"folder_name": clean_name, "subfolders": results}
+    return {"folder_name": folder_name, "subfolders": results}
 
 
 @app.get("/")
