@@ -455,18 +455,42 @@ async def find_box_folder_by_name(parent_id: str, name: str) -> Optional[str]:
     token = await get_box_access_token()
     if not token:
         return None
+    # BOX Search APIで親フォルダ内を名前検索（件数上限の回避）
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
-            f"https://api.box.com/2.0/folders/{parent_id}/items",
+            "https://api.box.com/2.0/search",
             headers={"Authorization": f"Bearer {token}"},
-            params={"fields": "id,name,type", "limit": 1000},
+            params={
+                "query": name,
+                "type": "folder",
+                "ancestor_folder_ids": parent_id,
+                "fields": "id,name,parent",
+                "limit": 50,
+            },
         )
-    if r.status_code != 200:
-        return None
-    items = r.json().get("entries", [])
-    for item in items:
-        if item.get("type") == "folder" and item.get("name", "") == name:
-            return item["id"]
+    if r.status_code == 200:
+        for item in r.json().get("entries", []):
+            if item.get("name") == name and item.get("parent", {}).get("id") == parent_id:
+                return item["id"]
+    # フォールバック：ページネーション付きフォルダリスト
+    async with httpx.AsyncClient(timeout=15) as client:
+        offset = 0
+        while True:
+            r = await client.get(
+                f"https://api.box.com/2.0/folders/{parent_id}/items",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"fields": "id,name,type", "limit": 1000, "offset": offset},
+            )
+            if r.status_code != 200:
+                break
+            data = r.json()
+            for item in data.get("entries", []):
+                if item.get("type") == "folder" and item.get("name") == name:
+                    return item["id"]
+            total = data.get("total_count", 0)
+            offset += len(data.get("entries", []))
+            if offset >= total:
+                break
     return None
 
 
