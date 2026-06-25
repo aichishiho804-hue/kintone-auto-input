@@ -31,18 +31,30 @@ RENDER_SERVICE_ID = os.getenv("RENDER_SERVICE_ID", "")
 import time
 
 async def _update_render_env(new_refresh: str, new_access: str):
-    """Render APIで環境変数を更新（再起動不要）"""
+    """Render APIで全環境変数を取得して BOX_TOKEN/BOX_REFRESH_TOKEN だけ更新"""
     if not RENDER_API_KEY or not RENDER_SERVICE_ID:
         return
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # 現在の全環境変数を取得
+            r = await client.get(
+                f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
+                headers={"Authorization": f"Bearer {RENDER_API_KEY}"},
+            )
+            if r.status_code != 200:
+                return
+            env_list = r.json()
+            # BOX_TOKEN と BOX_REFRESH_TOKEN を更新
+            for item in env_list:
+                if item.get("key") == "BOX_TOKEN":
+                    item["value"] = new_access
+                elif item.get("key") == "BOX_REFRESH_TOKEN":
+                    item["value"] = new_refresh
+            # 全体を PUT で更新
             await client.put(
                 f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
                 headers={"Authorization": f"Bearer {RENDER_API_KEY}", "Content-Type": "application/json"},
-                json=[
-                    {"key": "BOX_REFRESH_TOKEN", "value": new_refresh},
-                    {"key": "BOX_TOKEN", "value": new_access},
-                ],
+                json=env_list,
             )
     except Exception:
         pass
