@@ -410,6 +410,174 @@ async def api_update(req: UpdateRequest):
     return {"success": True, "revision": r.json().get("revision")}
 
 
+JYUNIN_APP_ID = os.getenv("JYUNIN_APP_ID", "56")
+JYUNIN_TOKEN = os.getenv("JYUNIN_TOKEN", "")
+BOX_JYUNIN_PARENT_FOLDER = os.getenv("BOX_JYUNIN_PARENT_FOLDER", "98466904273")
+
+BOX_SUBFOLDERS = [
+    "①戸籍・印鑑証明書・免許証",
+    "②登記情報・評価証明・名寄",
+    "③通帳・証券会社資料",
+    "④作成書類",
+    "⑤チェック済",
+    "⑥完了その他",
+    "⑦不動産仲介",
+]
+
+
+def extract_deceased_from_box(text: str) -> dict:
+    result = {}
+    # 故人氏名とふりがな: 「故人氏名 小田　初伸 (オダ　ハツノブ) 様」
+    m = re.search(r'故人氏名\s+(.+?)\s*[（(]([ァ-ヶー\s　]+)[）)]', text)
+    if m:
+        name = re.sub(r'[\s　]+', '', m.group(1)).replace('様', '')
+        result["被相続人"] = name
+        kana = m.group(2).strip()
+        hiragana = "".join(
+            chr(ord(c) - 0x60) if "ァ" <= c <= "ン" else c for c in kana
+        ).replace("　", "").replace(" ", "")
+        result["被相続人ふりがな"] = hiragana
+
+    # 故人続柄: 「故人続柄 父」
+    m2 = re.search(r'故人続柄\s+(\S+)', text)
+    if m2:
+        result["被相続人から見た依頼者の続柄"] = m2.group(1)
+
+    # 葬儀施行日時: 「葬儀施行 日時 2026.06.07」
+    m3 = re.search(r'葬儀施行\s*日時\s+(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})', text)
+    if m3:
+        result["西暦2"] = f"{m3.group(1)}-{int(m3.group(2)):02d}-{int(m3.group(3)):02d}"
+
+    return result
+
+
+async def find_box_folder_by_name(parent_id: str, name: str) -> Optional[str]:
+    token = await get_box_access_token()
+    if not token:
+        return None
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"https://api.box.com/2.0/folders/{parent_id}/items",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": "id,name,type", "limit": 1000},
+        )
+    if r.status_code != 200:
+        return None
+    items = r.json().get("entries", [])
+    for item in items:
+        if item.get("type") == "folder" and item.get("name", "") == name:
+            return item["id"]
+    return None
+
+
+async def create_box_subfolder(parent_id: str, name: str) -> Optional[str]:
+    token = await get_box_access_token()
+    if not token:
+        return None
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            "https://api.box.com/2.0/folders",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={"name": name, "parent": {"id": parent_id}},
+        )
+    if r.status_code in (200, 201):
+        return r.json().get("id")
+    if r.status_code == 409:  # already exists
+        return "exists"
+    return None
+
+
+class JyuninSearchRequest(BaseModel):
+    customer_name: str
+    hibikyo_record_id: str  # app57のレコードID
+    box_file_id: Optional[str] = None
+
+
+class JyuninUpdateRequest(BaseModel):
+    jyunin_record_id: str
+    fields: dict
+
+
+@app.post("/api/jyunin/search")
+async def api_jyunin_search(req: JyuninSearchRequest):
+    # 1. app56を反響レコード番号で検索
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/records.json",
+            headers={"X-Cybozu-API-Token": JYUNIN_TOKEN},
+            params={
+                "app": JYUNIN_APP_ID,
+                "query": f'反響レコード番号 = {req.hibikyo_record_id}',
+                "fields[0]": "$id",
+            },
+        )
+    if r.status_code != 200 or not r.json().get("records"):
+        raise HTTPException(status_code=404, detail="受任管理表レコードが見つかりません。kintoneで受任管理表を先に作成してください。")
+
+    jyunin_record_id = r.json()["records"][0]["$id"]["value"]
+
+    # 2. BOX連絡票から故人情報を抽出
+    auto = {}
+    sources = {}
+    if req.box_file_id:
+        box_text = await get_box_text(req.box_file_id)
+        if box_text:
+            deceased = extract_deceased_from_box(box_text)
+            for k, v in deceased.items():
+                if v:
+                    auto[k] = v
+            if deceased:
+                sources["故人情報"] = "BOX連絡票から抽出"
+
+    return {
+        "jyunin_record_id": jyunin_record_id,
+        "auto_fields": auto,
+        "sources": sources,
+    }
+
+
+@app.post("/api/jyunin/update")
+async def api_jyunin_update(req: JyuninUpdateRequest):
+    record_body = {}
+    date_fields = {"西暦2", "西暦3"}
+    for key, val in req.fields.items():
+        if val == "" or val is None:
+            continue
+        record_body[key] = {"value": val}
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.put(
+            f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
+            headers={
+                "X-Cybozu-API-Token": JYUNIN_TOKEN,
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            json={"app": JYUNIN_APP_ID, "id": req.jyunin_record_id, "record": record_body},
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.text)
+    return {"success": True}
+
+
+@app.post("/api/jyunin/create_folders")
+async def api_create_folders(req: JyuninSearchRequest):
+    # 顧客名でBOXフォルダを検索
+    clean_name = re.sub(r"^テスト用", "", req.customer_name).strip()
+    folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, clean_name)
+    if not folder_id:
+        raise HTTPException(status_code=404, detail=f"BOXに「{clean_name}」フォルダが見つかりません。kintoneによるフォルダ作成後に実行してください。")
+
+    results = []
+    for name in BOX_SUBFOLDERS:
+        result = await create_box_subfolder(folder_id, name)
+        results.append({"name": name, "status": "作成済" if result == "exists" else ("成功" if result else "失敗")})
+
+    return {"folder_name": clean_name, "subfolders": results}
+
+
 @app.get("/")
 async def root():
     return FileResponse("static/index.html")

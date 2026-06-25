@@ -17,6 +17,7 @@
   .card { background: white; border-radius: 12px; padding: 28px; margin-bottom: 24px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
   .card h2 { font-size: 15px; font-weight: 700; color: #2b6cb0; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
   .card h2::before { content: attr(data-step); background: #2b6cb0; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .card h2.green::before { background: #38a169; }
 
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .form-group { display: flex; flex-direction: column; gap: 6px; }
@@ -30,6 +31,9 @@
   .btn-primary:disabled { background: #a0aec0; cursor: not-allowed; }
   .btn-success { background: #38a169; color: white; width: 100%; }
   .btn-success:hover { background: #2f855a; }
+  .btn-orange { background: #dd6b20; color: white; width: 100%; margin-top: 12px; }
+  .btn-orange:hover { background: #c05621; }
+  .btn-orange:disabled { background: #a0aec0; cursor: not-allowed; }
 
   .field-list { display: flex; flex-direction: column; gap: 10px; }
   .field-item { display: grid; grid-template-columns: 140px 1fr 1fr; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0; }
@@ -52,6 +56,7 @@
   .alert-info { background: #ebf8ff; border: 1px solid #bee3f8; color: #2c5282; }
   .alert-error { background: #fff5f5; border: 1px solid #fed7d7; color: #c53030; }
   .alert-success { background: #f0fff4; border: 1px solid #c6f6d5; color: #276749; }
+  .alert-warning { background: #fffbeb; border: 1px solid #fbd38d; color: #744210; }
 
   .loading { text-align: center; padding: 32px; color: #718096; }
   .spinner { width: 36px; height: 36px; border: 3px solid #e2e8f0; border-top-color: #2b6cb0; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
@@ -60,8 +65,14 @@
   .message-preview { background: #f7fafc; border-radius: 8px; padding: 12px; font-size: 12px; color: #4a5568; white-space: pre-wrap; line-height: 1.6; margin-top: 12px; border-left: 3px solid #2b6cb0; }
   .message-preview-label { font-size: 11px; font-weight: 700; color: #718096; margin-top: 16px; margin-bottom: 4px; }
 
-  #step2, #step3 { display: none; }
+  #step2, #step3, #step4, #step5 { display: none; }
   .section-title { font-size: 12px; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 8px; }
+
+  .folder-result { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .folder-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f7fafc; border-radius: 6px; font-size: 13px; }
+  .folder-item .status-ok { color: #276749; font-weight: 700; }
+  .folder-item .status-exists { color: #2b6cb0; }
+  .folder-item .status-err { color: #c53030; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -86,16 +97,16 @@
         <input type="text" id="customer-name" placeholder="例：小田直史" />
       </div>
       <div class="form-group">
-        <label>kintone レコードID</label>
+        <label>kintone レコードID（反響管理表）</label>
         <input type="text" id="record-id" placeholder="例：8920" />
       </div>
     </div>
     <button class="btn btn-primary" id="search-btn" onclick="doSearch()">データを自動取得する</button>
   </div>
 
-  <!-- STEP 2: 確認 -->
+  <!-- STEP 2: 反響管理表 確認 -->
   <div class="card" id="step2">
-    <h2 data-step="2">取得データの確認・編集</h2>
+    <h2 data-step="2">取得データの確認・編集（反響管理表）</h2>
     <div id="step2-alert"></div>
 
     <div class="section-title">🤖 自動入力項目（BOX・Chatworkから取得）</div>
@@ -106,24 +117,65 @@
 
     <div id="chatwork-preview-area"></div>
 
-    <button class="btn btn-success" style="margin-top:24px" onclick="doUpdate()">kintoneに入力する</button>
+    <button class="btn btn-success" style="margin-top:24px" onclick="doUpdate()">kintoneに入力する（反響管理表）</button>
   </div>
 
-  <!-- STEP 3: 完了 -->
+  <!-- STEP 3: 反響管理表 完了 -->
   <div class="card" id="step3">
-    <h2 data-step="3">入力完了</h2>
+    <h2 data-step="3">反響管理表 入力完了</h2>
     <div id="step3-result"></div>
-    <button class="btn btn-primary" style="margin-top:16px" onclick="reset()">別の顧客を入力する</button>
+    <button class="btn btn-orange" id="jyunin-btn" onclick="doJyuninSearch()">受任管理表に入力する →</button>
+    <button class="btn btn-primary" style="margin-top:12px" onclick="reset()">別の顧客を入力する</button>
+  </div>
+
+  <!-- STEP 4: 受任管理表 確認 -->
+  <div class="card" id="step4">
+    <h2 data-step="4" class="green">受任管理表 データ確認・編集</h2>
+    <div id="step4-alert"></div>
+
+    <div class="section-title">🤖 自動入力項目（BOX連絡票から取得）</div>
+    <div class="field-list" id="jyunin-auto-fields"></div>
+
+    <div class="section-title">✏️ 手動入力が必要な項目</div>
+    <div class="field-list" id="jyunin-manual-fields"></div>
+
+    <button class="btn btn-success" style="margin-top:24px" onclick="doJyuninUpdate()">kintoneに入力する（受任管理表）</button>
+  </div>
+
+  <!-- STEP 5: 受任管理表 完了 + BOXフォルダ作成 -->
+  <div class="card" id="step5">
+    <h2 data-step="5" class="green">受任管理表 入力完了</h2>
+    <div id="step5-result"></div>
+    <div id="box-folder-area" style="margin-top:16px;">
+      <button class="btn btn-orange" id="folder-btn" onclick="doCreateFolders()">BOXに7フォルダを自動作成する</button>
+    </div>
+    <div id="folder-result"></div>
+    <button class="btn btn-primary" style="margin-top:12px" onclick="reset()">別の顧客を入力する</button>
   </div>
 
 </div>
 
 <script>
 let currentData = null;
+let currentJyuninData = null;
 
 const MANUAL_FIELDS = {
   "受注額": { label: "受注額（円）", type: "number", placeholder: "例：197000" },
   "LINE登録": { label: "LINE登録", type: "select", options: ["有", "無", "－"] },
+};
+
+const JYUNIN_MANUAL_FIELDS = {
+  "被相続人から見た依頼者の続柄": { label: "被相続人から見た依頼者の続柄", type: "text", placeholder: "例：長男" },
+  "文字列__1行__4": { label: "戸主", type: "text", placeholder: "" },
+  "西暦3": { label: "被相続人出生日", type: "date", placeholder: "" },
+  "address_0": { label: "被相続人本籍", type: "text", placeholder: "" },
+};
+
+const JYUNIN_AUTO_LABELS = {
+  "被相続人": "被相続人（故人氏名）",
+  "被相続人ふりがな": "被相続人ふりがな",
+  "被相続人から見た依頼者の続柄": "被相続人から見た依頼者の続柄",
+  "西暦2": "相続開始（死亡）日",
 };
 
 function showAlert(containerId, msg, type = "error") {
@@ -178,6 +230,7 @@ function renderStep2(data) {
     "和暦日": "和暦日", "依頼人年齢": "依頼人年齢", "面談担当者": "面談担当者",
     "受任日": "受任日", "完了予定日": "完了予定日", "面談": "面談",
     "ドロップダウン_6": "受任", "商品選択反": "商品選択",
+    "文字列__1行_": "郵便番号",
   };
 
   for (const [key, val] of Object.entries(data.auto_fields)) {
@@ -232,7 +285,7 @@ function renderStep2(data) {
 
 async function doUpdate() {
   const fields = {};
-  document.querySelectorAll("[data-key]").forEach(el => {
+  document.querySelectorAll("#step2 [data-key]").forEach(el => {
     if (el.value !== "") fields[el.dataset.key] = el.value;
   });
 
@@ -250,11 +303,8 @@ async function doUpdate() {
     document.getElementById("step3").style.display = "block";
     document.getElementById("step3-result").innerHTML = `
       <div class="alert alert-success">
-        <strong>${currentData.customer_name}</strong> のデータをkintoneに入力しました。<br>
+        <strong>${currentData.customer_name}</strong> の反響管理表をkintoneに入力しました。<br>
         レコードID: ${currentData.record_id}　/　リビジョン: ${result.revision}
-      </div>
-      <div style="margin-top:12px; font-size:13px; color:#4a5568;">
-        入力項目数: <strong>${Object.keys(fields).length}件</strong>
       </div>
     `;
     document.getElementById("step3").scrollIntoView({ behavior: "smooth" });
@@ -263,14 +313,154 @@ async function doUpdate() {
   }
 }
 
+async function doJyuninSearch() {
+  const btn = document.getElementById("jyunin-btn");
+  btn.disabled = true;
+  btn.textContent = "受任管理表を検索中...";
+
+  try {
+    const res = await fetch("/api/jyunin/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customer_name: currentData.customer_name,
+        hibikyo_record_id: currentData.record_id,
+        box_file_id: currentData.box_file_id || null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "検索エラー");
+    }
+    currentJyuninData = await res.json();
+    renderStep4(currentJyuninData);
+    document.getElementById("step4").style.display = "block";
+    document.getElementById("step4").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    showAlert("step3-result", `エラー: ${e.message}`, "error");
+    document.getElementById("step3-result").querySelector(".alert-error") ||
+      (document.getElementById("step3-result").innerHTML += `<div class="alert alert-error" style="margin-top:8px">エラー: ${e.message}</div>`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "受任管理表に入力する →";
+  }
+}
+
+function renderStep4(data) {
+  const autoEl = document.getElementById("jyunin-auto-fields");
+  const manEl = document.getElementById("jyunin-manual-fields");
+  autoEl.innerHTML = "";
+  manEl.innerHTML = "";
+
+  for (const [key, val] of Object.entries(data.auto_fields)) {
+    const label = JYUNIN_AUTO_LABELS[key] || key;
+    const src = data.sources["故人情報"] || "";
+    const div = document.createElement("div");
+    div.className = "field-item auto";
+    div.innerHTML = `
+      <div class="field-label">${label} <span class="badge badge-auto">自動</span></div>
+      <input type="text" id="jfield-${key}" value="${val}" data-key="${key}" />
+      <div class="field-source">${src}</div>
+    `;
+    autoEl.appendChild(div);
+  }
+
+  // 自動取得済みのキーは手動欄から除外
+  const autoKeys = Object.keys(data.auto_fields);
+  for (const [key, cfg] of Object.entries(JYUNIN_MANUAL_FIELDS)) {
+    if (autoKeys.includes(key)) continue;
+    const div = document.createElement("div");
+    div.className = "field-item manual";
+    const inputType = cfg.type === "date" ? "date" : "text";
+    div.innerHTML = `
+      <div class="field-label">${cfg.label} <span class="badge badge-manual">手動</span></div>
+      <input type="${inputType}" id="jfield-${key}" data-key="${key}" placeholder="${cfg.placeholder || ""}" />
+      <div class="field-source">手動入力してください</div>
+    `;
+    manEl.appendChild(div);
+  }
+
+  showAlert("step4-alert",
+    `受任管理表（レコードID: ${data.jyunin_record_id}）のデータを確認してください。`,
+    "info"
+  );
+}
+
+async function doJyuninUpdate() {
+  const fields = {};
+  document.querySelectorAll("#step4 [data-key]").forEach(el => {
+    if (el.value !== "") fields[el.dataset.key] = el.value;
+  });
+
+  try {
+    const res = await fetch("/api/jyunin/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jyunin_record_id: currentJyuninData.jyunin_record_id, fields }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "更新エラー");
+    }
+    document.getElementById("step5").style.display = "block";
+    document.getElementById("step5-result").innerHTML = `
+      <div class="alert alert-success">
+        受任管理表（レコードID: ${currentJyuninData.jyunin_record_id}）を更新しました。
+      </div>
+    `;
+    document.getElementById("step5").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    showAlert("step4-alert", `エラー: ${e.message}`);
+  }
+}
+
+async function doCreateFolders() {
+  const btn = document.getElementById("folder-btn");
+  btn.disabled = true;
+  btn.textContent = "BOXフォルダを作成中...";
+
+  try {
+    const res = await fetch("/api/jyunin/create_folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customer_name: currentData.customer_name,
+        hibikyo_record_id: currentData.record_id,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "フォルダ作成エラー");
+    }
+    const result = await res.json();
+    let html = `<div class="alert alert-success" style="margin-top:12px">「${result.folder_name}」フォルダにサブフォルダを作成しました。</div>`;
+    html += `<div class="folder-result">`;
+    for (const f of result.subfolders) {
+      const cls = f.status === "成功" ? "status-ok" : f.status === "作成済" ? "status-exists" : "status-err";
+      html += `<div class="folder-item"><span>${f.name}</span><span class="${cls}">${f.status}</span></div>`;
+    }
+    html += `</div>`;
+    document.getElementById("folder-result").innerHTML = html;
+    document.getElementById("box-folder-area").style.display = "none";
+  } catch (e) {
+    document.getElementById("folder-result").innerHTML =
+      `<div class="alert alert-error" style="margin-top:8px">エラー: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "BOXに7フォルダを自動作成する";
+  }
+}
+
 function reset() {
   document.getElementById("customer-name").value = "";
   document.getElementById("record-id").value = "";
-  document.getElementById("step2").style.display = "none";
-  document.getElementById("step3").style.display = "none";
+  ["step2","step3","step4","step5"].forEach(id => document.getElementById(id).style.display = "none");
   showAlert("step1-alert", "");
+  document.getElementById("folder-result").innerHTML = "";
+  document.getElementById("box-folder-area").style.display = "block";
   window.scrollTo({ top: 0, behavior: "smooth" });
   currentData = null;
+  currentJyuninData = null;
 }
 
 function escapeHtml(str) {
