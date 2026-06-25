@@ -628,30 +628,33 @@ async def api_create_folders(req: JyuninSearchRequest):
 
 @app.get("/api/debug/box_search")
 async def debug_box_search(name: str):
-    token = await get_box_access_token()
-    results = {"token_ok": bool(token), "parent_folder_id": BOX_JYUNIN_PARENT_FOLDER, "search_name": name}
+    results = {"search_name": name, "parent_folder_id": BOX_JYUNIN_PARENT_FOLDER}
+    try:
+        token = await get_box_access_token()
+        results["token_ok"] = bool(token)
+        results["token_prefix"] = token[:10] if token else None
 
-    # Search API
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
-            "https://api.box.com/2.0/search",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"query": name, "type": "folder", "ancestor_folder_ids": BOX_JYUNIN_PARENT_FOLDER,
-                    "fields": "id,name,parent", "limit": 50},
-        )
-    results["search_status"] = r.status_code
-    results["search_entries"] = r.json().get("entries", []) if r.status_code == 200 else r.text
+        async with httpx.AsyncClient(timeout=15) as client:
+            r2 = await client.get(
+                f"https://api.box.com/2.0/folders/{BOX_JYUNIN_PARENT_FOLDER}/items",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"fields": "id,name,type", "limit": 10},
+            )
+        results["folder_list_status"] = r2.status_code
+        results["folder_total_count"] = r2.json().get("total_count") if r2.status_code == 200 else None
+        results["folder_list_sample"] = [i["name"] for i in r2.json().get("entries", [])] if r2.status_code == 200 else r2.text[:500]
 
-    # Parent folder first 10 items
-    async with httpx.AsyncClient(timeout=15) as client:
-        r2 = await client.get(
-            f"https://api.box.com/2.0/folders/{BOX_JYUNIN_PARENT_FOLDER}/items",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"fields": "id,name,type", "limit": 10},
-        )
-    results["folder_list_status"] = r2.status_code
-    results["folder_list_sample"] = r2.json().get("entries", []) if r2.status_code == 200 else r2.text
-    results["folder_total_count"] = r2.json().get("total_count") if r2.status_code == 200 else None
+        async with httpx.AsyncClient(timeout=15) as client:
+            rs = await client.get(
+                "https://api.box.com/2.0/search",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"query": name, "type": "folder", "ancestor_folder_ids": BOX_JYUNIN_PARENT_FOLDER,
+                        "fields": "id,name,parent", "limit": 10},
+            )
+        results["search_status"] = rs.status_code
+        results["search_entries"] = [{"id": e["id"], "name": e["name"], "parent_id": e.get("parent", {}).get("id")} for e in rs.json().get("entries", [])] if rs.status_code == 200 else rs.text[:500]
+    except Exception as e:
+        results["error"] = str(e)
     return results
 
 
