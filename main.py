@@ -655,7 +655,7 @@ async def api_create_folders(req: JyuninSearchRequest):
         result = await create_box_subfolder(folder_id, name)
         results.append({"name": name, "status": "作成済" if result == "exists" else ("成功" if result else "失敗")})
 
-    return {"folder_name": folder_name, "subfolders": results}
+    return {"folder_name": folder_name, "folder_id": folder_id, "subfolders": results}
 
 
 # ── BOX書類スキャン ────────────────────────────────────────
@@ -761,11 +761,15 @@ class ScanDocsRequest(BaseModel):
     hibikyo_record_id: str
     jyunin_record_id: str
     customer_name: str
+    box_folder_id: Optional[str] = None  # create_foldersで取得したフォルダID
 
 
 @app.post("/api/jyunin/scan_docs")
 async def api_scan_docs(req: ScanDocsRequest):
-    folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, req.customer_name)
+    # フォルダIDが直接渡された場合は再検索不要
+    folder_id = req.box_folder_id
+    if not folder_id:
+        folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, req.customer_name)
     if not folder_id:
         raise HTTPException(status_code=404, detail=f"BOXに「{req.customer_name}」フォルダが見つかりません。")
 

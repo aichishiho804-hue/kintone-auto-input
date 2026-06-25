@@ -453,6 +453,9 @@ async function doCreateFolders() {
     html += `</div>`;
     document.getElementById("folder-result").innerHTML = html;
     document.getElementById("box-folder-area").style.display = "none";
+    // フォルダIDを保存してStep6に渡す
+    currentJyuninData.box_folder_id = result.folder_id;
+    currentJyuninData.folder_name = result.folder_name;
     // Step6を表示
     document.getElementById("step6").style.display = "block";
     document.getElementById("step6").scrollIntoView({ behavior: "smooth" });
@@ -479,6 +482,7 @@ async function doScanDocs() {
         hibikyo_record_id: currentData.record_id,
         jyunin_record_id: currentJyuninData.jyunin_record_id,
         customer_name: currentJyuninData.folder_name || currentData.customer_name,
+        box_folder_id: currentJyuninData.box_folder_id || null,
       }),
     });
     const result = await res.json();
