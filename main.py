@@ -555,6 +555,7 @@ async def api_jyunin_search(req: JyuninSearchRequest):
             "受任日":         {"value": hv("受任日")},
             "受注額":         {"value": int(hv("受注額")) if hv("受注額") else 0},
             "ドロップダウン_9": {"value": hv("面談担当者")},   # 〇受任者
+            "案件担当者":      {"value": hv("面談担当者")},   # 管理担当者
             "商品選択受":      {"value": product56},
             "商品選択反":      {"value": product57},
             "チャネル選択受":  {"value": hv("チャネル選択反")},
