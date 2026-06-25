@@ -17,6 +17,33 @@ KINTONE_TOKEN = os.getenv("KINTONE_TOKEN", "")
 CHATWORK_TOKEN = os.getenv("CHATWORK_TOKEN", "")
 CHATWORK_ROOM_ID = os.getenv("CHATWORK_ROOM_ID", "236606241")
 BOX_TOKEN = os.getenv("BOX_TOKEN", "")
+BOX_CLIENT_ID = os.getenv("BOX_CLIENT_ID", "")
+BOX_CLIENT_SECRET = os.getenv("BOX_CLIENT_SECRET", "")
+BOX_REFRESH_TOKEN = os.getenv("BOX_REFRESH_TOKEN", "")
+
+_box_access_token: str = BOX_TOKEN
+_box_refresh_token: str = BOX_REFRESH_TOKEN
+
+
+async def get_box_access_token() -> str:
+    global _box_access_token, _box_refresh_token
+    if not BOX_CLIENT_ID or not BOX_CLIENT_SECRET or not _box_refresh_token:
+        return _box_access_token
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            "https://api.box.com/oauth2/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": _box_refresh_token,
+                "client_id": BOX_CLIENT_ID,
+                "client_secret": BOX_CLIENT_SECRET,
+            },
+        )
+    if r.status_code == 200:
+        data = r.json()
+        _box_access_token = data.get("access_token", _box_access_token)
+        _box_refresh_token = data.get("refresh_token", _box_refresh_token)
+    return _box_access_token
 
 
 # ── ユーティリティ ──────────────────────────────────────────
@@ -99,13 +126,14 @@ async def get_kintone_record(record_id: str) -> dict:
 # ── BOX ────────────────────────────────────────────────────
 
 async def get_box_text(file_id: str) -> str:
-    if not BOX_TOKEN:
+    token = await get_box_access_token()
+    if not token:
         return ""
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
             f"https://api.box.com/2.0/files/{file_id}",
             headers={
-                "Authorization": f"Bearer {BOX_TOKEN}",
+                "Authorization": f"Bearer {token}",
                 "X-Rep-Hints": "[extracted_text]",
             },
             params={"fields": "representations"},
@@ -119,7 +147,7 @@ async def get_box_text(file_id: str) -> str:
         url = text_rep.get("content", {}).get("url_template", "").replace("{+asset_path}", "")
         if not url:
             return ""
-        r2 = await client.get(url, headers={"Authorization": f"Bearer {BOX_TOKEN}"})
+        r2 = await client.get(url, headers={"Authorization": f"Bearer {token}"})
         return r2.text if r2.status_code == 200 else ""
 
 
