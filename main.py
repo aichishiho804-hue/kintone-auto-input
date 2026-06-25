@@ -23,10 +23,37 @@ BOX_REFRESH_TOKEN = os.getenv("BOX_REFRESH_TOKEN", "")
 
 _box_access_token: str = BOX_TOKEN
 _box_refresh_token: str = BOX_REFRESH_TOKEN
+_box_token_expires_at: float = 0.0  # epoch seconds
+
+RENDER_API_KEY = os.getenv("RENDER_API_KEY", "")
+RENDER_SERVICE_ID = os.getenv("RENDER_SERVICE_ID", "")
+
+import time
+
+async def _update_render_env(new_refresh: str, new_access: str):
+    """Render APIで環境変数を更新（再起動不要）"""
+    if not RENDER_API_KEY or not RENDER_SERVICE_ID:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.put(
+                f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
+                headers={"Authorization": f"Bearer {RENDER_API_KEY}", "Content-Type": "application/json"},
+                json=[
+                    {"key": "BOX_REFRESH_TOKEN", "value": new_refresh},
+                    {"key": "BOX_TOKEN", "value": new_access},
+                ],
+            )
+    except Exception:
+        pass
 
 
 async def get_box_access_token() -> str:
-    global _box_access_token, _box_refresh_token
+    global _box_access_token, _box_refresh_token, _box_token_expires_at
+    now = time.time()
+    # 有効期限が残り5分以上あればそのまま使用
+    if _box_access_token and now < _box_token_expires_at - 300:
+        return _box_access_token
     if not BOX_CLIENT_ID or not BOX_CLIENT_SECRET or not _box_refresh_token:
         return _box_access_token
     async with httpx.AsyncClient(timeout=10) as client:
@@ -43,6 +70,11 @@ async def get_box_access_token() -> str:
         data = r.json()
         _box_access_token = data.get("access_token", _box_access_token)
         _box_refresh_token = data.get("refresh_token", _box_refresh_token)
+        expires_in = data.get("expires_in", 3600)
+        _box_token_expires_at = now + expires_in
+        # Render環境変数を非同期で更新（失敗しても続行）
+        import asyncio
+        asyncio.create_task(_update_render_env(_box_refresh_token, _box_access_token))
     return _box_access_token
 
 
