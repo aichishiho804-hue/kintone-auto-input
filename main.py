@@ -496,6 +496,8 @@ def extract_deceased_from_box(text: str) -> dict:
 
 
 async def find_box_folder_by_name(parent_id: str, name: str) -> Optional[str]:
+    # テスト用プレフィックスを除去して実際のフォルダ名に合わせる
+    name = re.sub(r'^テスト用', '', name).strip()
     token = await get_box_access_token()
     if not token:
         return None
