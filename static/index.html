@@ -182,7 +182,11 @@ function renderStep2(data) {
 
   for (const [key, val] of Object.entries(data.auto_fields)) {
     const label = LABELS[key] || key;
-    const src = data.sources[key] || data.sources["住所系"] || data.sources["和暦・年齢"] || "";
+    const addrKeys = ["都道府県","市町村名","町名","住所","文字列__1行_"];
+    const warekiKeys = ["和暦年","和暦月","和暦日","依頼人年齢"];
+    let src = data.sources[key] || "";
+    if (!src && addrKeys.includes(key)) src = data.sources["住所系"] || "";
+    if (!src && warekiKeys.includes(key)) src = data.sources["和暦・年齢"] || "";
     const div = document.createElement("div");
     div.className = "field-item auto";
     div.innerHTML = `

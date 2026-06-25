@@ -138,14 +138,35 @@ def extract_kana_from_box(text: str, name: str) -> Optional[str]:
     return None
 
 
-def extract_address_from_box(text: str) -> dict:
+async def lookup_prefecture_from_zip(zipcode: str) -> str:
+    """郵便番号から都道府県をzipcloudで検索"""
+    code = zipcode.replace("-", "").replace("ー", "")
+    if len(code) != 7:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(
+                "https://zipcloud.ibsnet.co.jp/api/search",
+                params={"zipcode": code},
+            )
+        data = r.json()
+        results = data.get("results") or []
+        if results:
+            return results[0].get("address1", "")
+    except Exception:
+        pass
+    return ""
+
+
+async def extract_address_from_box(text: str) -> dict:
     """BOX連絡票から住所・郵便番号を抽出"""
     result = {}
 
     # 「住所 (〒444-0948) 岡崎市西本郷町字和志山２４１番地１」パターン
     addr_match = re.search(r'住所\s*[（(〒]?\s*〒?([\d-]{7,8})[）)]?\s*(.+)', text)
     if addr_match:
-        result["文字列__1行_"] = addr_match.group(1).replace("-", "-")  # 郵便番号
+        zipcode = addr_match.group(1).replace("-", "-")
+        result["文字列__1行_"] = zipcode  # 郵便番号
         addr_text = addr_match.group(2).strip()
 
         # 全角数字→半角に正規化
@@ -159,7 +180,10 @@ def extract_address_from_box(text: str) -> dict:
             result["町名"] = town
             result["住所"] = addr_text
         else:
-            # 都道府県なし（市区町村から）
+            # 都道府県なし → 郵便番号APIで補完
+            pref = await lookup_prefecture_from_zip(zipcode)
+            if pref:
+                result["都道府県"] = pref
             city_match = re.match(r'^(.+?[市区町村郡])', addr_text)
             if city_match:
                 city = city_match.group(1)
@@ -168,7 +192,7 @@ def extract_address_from_box(text: str) -> dict:
                 town = re.sub(r'[\d０-９]+番地.*$', '', town).strip()
                 result["市町村名"] = city
                 result["町名"] = town
-                result["住所"] = addr_text  # 都道府県なしでも住所欄に入力
+                result["住所"] = (pref + addr_text) if pref else addr_text
 
     return result
 
@@ -282,7 +306,7 @@ async def api_search(req: SearchRequest):
 
             # 住所（kintoneが空の場合はBOXから取得）
             if not address:
-                box_addr = extract_address_from_box(box_text)
+                box_addr = await extract_address_from_box(box_text)
                 for key, val in box_addr.items():
                     if val:
                         auto[key] = val
