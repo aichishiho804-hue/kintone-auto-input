@@ -337,9 +337,9 @@ async function doJyuninSearch() {
     document.getElementById("step4").style.display = "block";
     document.getElementById("step4").scrollIntoView({ behavior: "smooth" });
   } catch (e) {
-    showAlert("step3-result", `エラー: ${e.message}`, "error");
-    document.getElementById("step3-result").querySelector(".alert-error") ||
-      (document.getElementById("step3-result").innerHTML += `<div class="alert alert-error" style="margin-top:8px">エラー: ${e.message}</div>`);
+    document.getElementById("step3-result").innerHTML =
+      (document.getElementById("step3-result").innerHTML || "") +
+      `<div class="alert alert-warning" style="margin-top:8px">⚠️ ${e.message}</div>`;
   } finally {
     btn.disabled = false;
     btn.textContent = "受任管理表に入力する →";
