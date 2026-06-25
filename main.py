@@ -514,16 +514,53 @@ async def api_jyunin_search(req: JyuninSearchRequest):
                 "fields[0]": "$id",
             },
         )
-    if r.status_code != 200 or not r.json().get("records"):
-        raise HTTPException(status_code=404, detail="受任管理表レコードが見つかりません。kintoneで受任管理表を先に作成してください。")
 
-    jyunin_record_id = r.json()["records"][0]["$id"]["value"]
+    created = False
+    if r.status_code != 200 or not r.json().get("records"):
+        # 見つからない場合はapp57から情報を取得して自動作成
+        hibikyo = await get_kintone_record(req.hibikyo_record_id)
+        new_record = {
+            "反響レコード番号": {"value": int(req.hibikyo_record_id)},
+            "顧客番号": {"value": hibikyo.get("顧客番号", {}).get("value", "")},
+            "相談者名": {"value": hibikyo.get("相談者名", {}).get("value", "")},
+            "依頼者名ふりがな": {"value": hibikyo.get("ふりがな", {}).get("value", "")},
+            "TEL": {"value": hibikyo.get("電話番号1", {}).get("value", "")},
+            "TEL2": {"value": hibikyo.get("電話番号2", {}).get("value", "")},
+            "address": {"value": hibikyo.get("住所", {}).get("value", "")},
+            "zipcode": {"value": hibikyo.get("文字列__1行_", {}).get("value", "")},
+        }
+        # 空値を除去
+        new_record = {k: v for k, v in new_record.items() if v.get("value")}
+        async with httpx.AsyncClient(timeout=10) as client:
+            rc = await client.post(
+                f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
+                headers={
+                    "X-Cybozu-API-Token": JYUNIN_TOKEN,
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json={"app": JYUNIN_APP_ID, "record": new_record},
+            )
+        if rc.status_code != 200:
+            raise HTTPException(status_code=rc.status_code, detail=f"受任管理表の自動作成に失敗しました: {rc.text}")
+        jyunin_record_id = rc.json()["id"]
+        created = True
+    else:
+        jyunin_record_id = r.json()["records"][0]["$id"]["value"]
 
     # 2. BOX連絡票から故人情報を抽出
     auto = {}
     sources = {}
-    if req.box_file_id:
-        box_text = await get_box_text(req.box_file_id)
+    box_file_id = req.box_file_id
+    if not box_file_id:
+        # box_file_idがない場合はapp57の問合せ内容から取得
+        hibikyo = await get_kintone_record(req.hibikyo_record_id)
+        inquiry = hibikyo.get("問合せ内容", {}).get("value", "")
+        m = re.search(r"連絡票[：:]\s*https://app\.box\.com/file/(\d+)", inquiry)
+        if m:
+            box_file_id = m.group(1)
+
+    if box_file_id:
+        box_text = await get_box_text(box_file_id)
         if box_text:
             deceased = extract_deceased_from_box(box_text)
             for k, v in deceased.items():
@@ -534,6 +571,7 @@ async def api_jyunin_search(req: JyuninSearchRequest):
 
     return {
         "jyunin_record_id": jyunin_record_id,
+        "created": created,
         "auto_fields": auto,
         "sources": sources,
     }

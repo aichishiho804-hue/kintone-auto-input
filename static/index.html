@@ -380,10 +380,10 @@ function renderStep4(data) {
     manEl.appendChild(div);
   }
 
-  showAlert("step4-alert",
-    `受任管理表（レコードID: ${data.jyunin_record_id}）のデータを確認してください。`,
-    "info"
-  );
+  const msg = data.created
+    ? `受任管理表を新規作成しました（レコードID: ${data.jyunin_record_id}）。追加情報を確認・入力してください。`
+    : `受任管理表（レコードID: ${data.jyunin_record_id}）のデータを確認してください。`;
+  showAlert("step4-alert", msg, "info");
 }
 
 async function doJyuninUpdate() {
