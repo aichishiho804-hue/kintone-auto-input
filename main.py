@@ -519,18 +519,60 @@ async def api_jyunin_search(req: JyuninSearchRequest):
     if r.status_code != 200 or not r.json().get("records"):
         # 見つからない場合はapp57から情報を取得して自動作成
         hibikyo = await get_kintone_record(req.hibikyo_record_id)
+        def hv(field): return hibikyo.get(field, {}).get("value", "") or ""
+
+        # 被相続人名を問合せ内容から抽出
+        inquiry = hv("問合せ内容")
+        deceased_name = ""
+        dm = re.search(r'被相続人[：:]\s*(.+?)(?:（|様|$)', inquiry)
+        if dm:
+            deceased_name = re.sub(r'[\s　]+', '', dm.group(1))
+
+        # 商品コードをapp56の選択肢に合わせてマッピング
+        product_map = {
+            "相続登記放棄": "相続登記放棄",
+            "相続一式": "相続一式",
+            "遺産承継": "遺産承継％",
+            "成年後見": "成年後見",
+            "生前定額": "生前定額",
+        }
+        product57 = hv("商品選択反")
+        product56 = product_map.get(product57, product57)
+
+        tel = hv("電話番号") or hv("電話番号2") or hv("電話番号1")
+
         new_record = {
             "反響レコード番号": {"value": int(req.hibikyo_record_id)},
-            "顧客番号": {"value": hibikyo.get("顧客番号", {}).get("value", "")},
-            "相談者名": {"value": hibikyo.get("相談者名", {}).get("value", "")},
-            "依頼者名ふりがな": {"value": hibikyo.get("ふりがな", {}).get("value", "")},
-            "TEL": {"value": hibikyo.get("電話番号1", {}).get("value", "")},
-            "TEL2": {"value": hibikyo.get("電話番号2", {}).get("value", "")},
-            "address": {"value": hibikyo.get("住所", {}).get("value", "")},
-            "zipcode": {"value": hibikyo.get("文字列__1行_", {}).get("value", "")},
+            "顧客番号":        {"value": hv("顧客番号")},
+            "相談者名":        {"value": hv("相談者名")},
+            "依頼者名ふりがな": {"value": hv("ふりがな")},
+            "TEL":            {"value": tel},
+            "address":        {"value": hv("住所")},
+            "zipcode":        {"value": hv("文字列__1行_")},
+            "性別":           {"value": hv("性別") or "男性"},
+            "東西エリア":      {"value": hv("東西エリア") or "東"},
+            "LINE登録":       {"value": hv("LINE登録") or "無"},
+            "受任日":         {"value": hv("受任日")},
+            "受注額":         {"value": int(hv("受注額")) if hv("受注額") else 0},
+            "ドロップダウン_9": {"value": hv("面談担当者")},   # 〇受任者
+            "商品選択受":      {"value": product56},
+            "商品選択反":      {"value": product57},
+            "チャネル選択受":  {"value": hv("チャネル選択反")},
+            "基本情報入力":    {"value": "未確認"},
+            "全体進捗1":      {"value": "手続中"},
+            "解約入金口座":    {"value": "なし"},
+            "ラジオボタン_4":  {"value": "抽出"},
+            "ラジオボタン":    {"value": "無"},
+            "ラジオボタン_0":  {"value": "-"},
         }
-        # 空値を除去
-        new_record = {k: v for k, v in new_record.items() if v.get("value")}
+        if deceased_name:
+            new_record["被相続人"] = {"value": deceased_name}
+
+        # 空文字列の文字列フィールドを除去（必須NUMBER以外）
+        str_fields = {"顧客番号","相談者名","依頼者名ふりがな","TEL","address","zipcode","ドロップダウン_9","商品選択受","商品選択反","チャネル選択受","受任日","被相続人"}
+        new_record = {k: v for k, v in new_record.items()
+                      if k not in str_fields or (v.get("value") not in ("", None))}
+
         async with httpx.AsyncClient(timeout=10) as client:
             rc = await client.post(
                 f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
