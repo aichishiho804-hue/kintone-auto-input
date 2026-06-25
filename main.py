@@ -268,12 +268,19 @@ async def api_search(req: SearchRequest):
     record = await get_kintone_record(req.record_id)
 
     address = record.get("住所", {}).get("value", "")
+    zipcode = record.get("文字列__1行_", {}).get("value", "")
     if address:
         pref, city, town = extract_address_parts(address)
         auto["都道府県"] = pref
         auto["市町村名"] = city
         auto["町名"] = town
         sources["住所系"] = "kintone既存住所から分割"
+        # 都道府県が取れなかった場合は郵便番号で補完
+        if not pref and zipcode:
+            pref = await lookup_prefecture_from_zip(zipcode)
+            if pref:
+                auto["都道府県"] = pref
+                sources["住所系"] = "kintone既存住所から分割（都道府県は郵便番号から補完）"
 
     birthdate = record.get("西暦", {}).get("value", "")
     if birthdate:
