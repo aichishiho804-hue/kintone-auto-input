@@ -188,6 +188,25 @@ async def get_box_text(file_id: str) -> str:
         text_rep = next((e for e in entries if e.get("representation") == "extracted_text"), None)
         if not text_rep:
             return ""
+        # status が "none" の場合はBOXにOCR生成をリクエストし少し待つ
+        status = text_rep.get("status", {}).get("state", "")
+        if status == "none":
+            info_url = text_rep.get("info", {}).get("url", "")
+            if info_url:
+                await client.get(info_url, headers={"Authorization": f"Bearer {token}"})
+            import asyncio
+            await asyncio.sleep(3)
+            # 再取得
+            r3 = await client.get(
+                f"https://api.box.com/2.0/files/{file_id}",
+                headers={"Authorization": f"Bearer {token}", "X-Rep-Hints": "[extracted_text]"},
+                params={"fields": "representations"},
+            )
+            if r3.status_code == 200:
+                entries = r3.json().get("representations", {}).get("entries", [])
+                text_rep = next((e for e in entries if e.get("representation") == "extracted_text"), None)
+                if not text_rep:
+                    return ""
         url = text_rep.get("content", {}).get("url_template", "").replace("{+asset_path}", "")
         if not url:
             return ""
@@ -880,6 +899,21 @@ async def debug_box_search(name: str):
     except Exception as e:
         results["error"] = str(e)
     return results
+
+
+@app.get("/api/debug/box_file_text")
+async def debug_box_file_text(file_id: str):
+    """BOXファイルのOCRテキストを確認するデバッグ用"""
+    try:
+        text = await get_box_text(file_id)
+        addr = await extract_address_from_box(text) if text else {}
+        return {
+            "text_length": len(text),
+            "text_preview": text[:500] if text else "",
+            "address_extracted": addr,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/")
