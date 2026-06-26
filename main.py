@@ -905,13 +905,33 @@ async def debug_box_search(name: str):
 async def debug_box_file_text(file_id: str):
     """BOXファイルのOCRテキストを確認するデバッグ用"""
     try:
+        token = await get_box_access_token()
+        result = {"token_ok": bool(token), "token_prefix": token[:10] if token else ""}
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"https://api.box.com/2.0/files/{file_id}",
+                headers={"Authorization": f"Bearer {token}", "X-Rep-Hints": "[extracted_text]"},
+                params={"fields": "representations,name"},
+            )
+        result["api_status"] = r.status_code
+        if r.status_code != 200:
+            result["api_error"] = r.text[:500]
+            return result
+        data = r.json()
+        result["file_name"] = data.get("name", "")
+        entries = data.get("representations", {}).get("entries", [])
+        result["rep_count"] = len(entries)
+        result["rep_types"] = [e.get("representation") for e in entries]
+        text_rep = next((e for e in entries if e.get("representation") == "extracted_text"), None)
+        if text_rep:
+            result["rep_status"] = text_rep.get("status", {}).get("state", "")
+            result["rep_url"] = text_rep.get("content", {}).get("url_template", "")
         text = await get_box_text(file_id)
         addr = await extract_address_from_box(text) if text else {}
-        return {
-            "text_length": len(text),
-            "text_preview": text[:500] if text else "",
-            "address_extracted": addr,
-        }
+        result["text_length"] = len(text)
+        result["text_preview"] = text[:500] if text else ""
+        result["address_extracted"] = addr
+        return result
     except Exception as e:
         return {"error": str(e)}
 
