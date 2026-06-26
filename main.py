@@ -914,8 +914,17 @@ async def debug_box_file_text(file_id: str):
                 params={"fields": "representations,name"},
             )
         result["api_status"] = r.status_code
+        result["api_error"] = r.text[:500]
         if r.status_code != 200:
-            result["api_error"] = r.text[:500]
+            # スコープなしで基本情報だけ試す
+            async with httpx.AsyncClient(timeout=15) as client2:
+                r_basic = await client2.get(
+                    f"https://api.box.com/2.0/files/{file_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"fields": "id,name,owned_by"},
+                )
+            result["basic_status"] = r_basic.status_code
+            result["basic_response"] = r_basic.text[:500]
             return result
         data = r.json()
         result["file_name"] = data.get("name", "")
