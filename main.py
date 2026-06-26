@@ -916,15 +916,18 @@ async def debug_box_file_text(file_id: str):
         result["api_status"] = r.status_code
         result["api_error"] = r.text[:500]
         if r.status_code != 200:
-            # スコープなしで基本情報だけ試す
+            # トークンが誰のものか確認
             async with httpx.AsyncClient(timeout=15) as client2:
-                r_basic = await client2.get(
-                    f"https://api.box.com/2.0/files/{file_id}",
+                r_me = await client2.get(
+                    "https://api.box.com/2.0/users/me",
                     headers={"Authorization": f"Bearer {token}"},
-                    params={"fields": "id,name,owned_by"},
                 )
-            result["basic_status"] = r_basic.status_code
-            result["basic_response"] = r_basic.text[:500]
+            result["me_status"] = r_me.status_code
+            me = r_me.json() if r_me.status_code == 200 else {}
+            result["me_login"] = me.get("login", "")
+            result["me_name"] = me.get("name", "")
+            result["me_type"] = me.get("type", "")
+            result["me_raw"] = r_me.text[:300]
             return result
         data = r.json()
         result["file_name"] = data.get("name", "")
