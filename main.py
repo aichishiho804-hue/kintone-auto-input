@@ -383,14 +383,20 @@ async def api_search(req: SearchRequest):
         auto["依頼人年齢"] = calc_age(birthdate)
         sources["和暦・年齢"] = "生年月日から算出"
 
-    # 連絡票BOX URL取得
+    # 連絡票BOX URL取得（専用フィールド優先、なければ問合せ内容から）
     inquiry = record.get("問合せ内容", {}).get("value", "")
     box_url = ""
     box_file_id = None
-    m2 = re.search(r"連絡票[：:]\s*(https://app\.box\.com/file/(\d+))", inquiry)
-    if m2:
-        box_url = m2.group(1)
-        box_file_id = m2.group(2)
+    renrakuhyo = record.get("連絡票", {}).get("value", "")
+    m_direct = re.search(r"https://app\.box\.com/file/(\d+)", renrakuhyo)
+    if m_direct:
+        box_url = m_direct.group(0)
+        box_file_id = m_direct.group(1)
+    else:
+        m2 = re.search(r"連絡票[：:]\s*(https://app\.box\.com/file/(\d+))", inquiry)
+        if m2:
+            box_url = m2.group(1)
+            box_file_id = m2.group(2)
 
     # 2. BOX連絡票からふりがな・住所を抽出
     if box_file_id:
