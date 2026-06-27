@@ -44,17 +44,19 @@ async def _update_render_env(new_refresh: str, new_access: str):
             if r.status_code != 200:
                 return
             env_list = r.json()
-            # BOX_TOKEN と BOX_REFRESH_TOKEN を更新
+            # Render API response: [{"envVar": {"key": "...", "value": "..."}, "cursor": "..."}]
             for item in env_list:
-                if item.get("key") == "BOX_TOKEN":
-                    item["value"] = new_access
-                elif item.get("key") == "BOX_REFRESH_TOKEN":
-                    item["value"] = new_refresh
-            # 全体を PUT で更新
+                env = item.get("envVar", item)  # 旧形式との互換
+                if env.get("key") == "BOX_TOKEN":
+                    env["value"] = new_access
+                elif env.get("key") == "BOX_REFRESH_TOKEN":
+                    env["value"] = new_refresh
+            # PUT形式: [{"key": "...", "value": "..."}]
+            put_body = [{"key": item.get("envVar", item).get("key"), "value": item.get("envVar", item).get("value")} for item in env_list]
             await client.put(
                 f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
                 headers={"Authorization": f"Bearer {RENDER_API_KEY}", "Content-Type": "application/json"},
-                json=env_list,
+                json=put_body,
             )
     except Exception:
         pass
