@@ -1109,12 +1109,15 @@ async def api_scan_docs(req: ScanDocsRequest):
     # kintoneに存在するフィールドコード一覧（デバッグ用）
     available_fields = list(current.keys()) if current else []
 
+    # PLAUD議事録フィールドは既入力でも常に上書き
+    ALWAYS_OVERWRITE_FIELDS = {"工程詳細"}
+
     update_body = {}
     preview = {}   # 入力予定の全フィールド（既入力含む）
     skipped = {}   # 既入力のためスキップ
     for key, val in extracted.items():
         existing = current.get(key, {}).get("value", "")
-        if existing:
+        if existing and key not in ALWAYS_OVERWRITE_FIELDS:
             skipped[key] = existing
         else:
             update_body[key] = {"value": val}
@@ -1299,6 +1302,24 @@ async def debug_box_file_text(file_id: str):
     except Exception as e:
         import traceback
         return {"error": str(e), "traceback": traceback.format_exc()[-500:]}
+
+
+@app.get("/api/debug/jyunin_fields")
+async def debug_jyunin_fields(record_id: str):
+    """受任管理表（app56）のフィールドコード一覧を確認するデバッグ用"""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
+            headers={"X-Cybozu-API-Token": JYUNIN_TOKEN},
+            params={"app": JYUNIN_APP_ID, "id": record_id},
+        )
+    if r.status_code != 200:
+        return {"error": r.text}
+    record = r.json().get("record", {})
+    return {
+        "field_codes": list(record.keys()),
+        "fields_with_values": {k: v.get("value", "")[:50] for k, v in record.items() if v.get("value")},
+    }
 
 
 @app.get("/")
