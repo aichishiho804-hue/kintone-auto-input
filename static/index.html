@@ -641,7 +641,7 @@ function renderScanFields(fields, sources, container) {
   let html = `<div class="field-list">`;
   for (const [k, v] of Object.entries(fields)) {
     const label = SCAN_LABELS[k] || k;
-    const preview = k === "オーダー特記事項1" ? `<pre style="white-space:pre-wrap;font-size:12px;max-height:200px;overflow:auto;background:#f7fafc;padding:8px;border-radius:6px;margin-top:4px">${escapeHtml(String(v).substring(0, 600))}${v.length > 600 ? "…" : ""}</pre>` : `<span class="field-value">${escapeHtml(String(v))}</span>`;
+    const preview = k === "オーダー特記事項1" ? `<pre style="white-space:pre-wrap;font-size:11px;max-height:400px;overflow:auto;background:#f7fafc;padding:8px;border-radius:6px;margin-top:4px">${escapeHtml(String(v))}</pre>` : `<span class="field-value">${escapeHtml(String(v))}</span>`;
     html += `<div class="field-item auto" style="display:block;padding:10px 14px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
         <span class="field-label">${label}</span>
