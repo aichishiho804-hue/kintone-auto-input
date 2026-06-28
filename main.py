@@ -939,6 +939,99 @@ async def fetch_plaud_notes(plaud_url: str) -> str:
     return ""
 
 
+KOUTE_TEMPLATE = """◇初動指示
+①連絡手段
+②前受金有無
+③処理の初動
+
+１．相続関係
+被相続人①
+被相続人：
+本籍：
+住所：
+生年月日：
+死亡日：
+筆頭者：
+相続人間関係性：
+
+被相続人②（二次相続がある場合）
+被相続人：
+本籍：
+住所：
+生年月日：
+死亡日：
+筆頭者：
+相続人間関係性：
+
+相続人①
+相続人（ふりがな）：
+筆頭者：
+続き柄：
+本籍：
+住所：
+生年月日：
+
+相続人②
+相続人（ふりがな）：
+筆頭者：
+続き柄：
+本籍：
+住所：
+生年月日：
+
+２．財産状況
+・不動産：（評価取得する市区町村）
+・預貯金：（銀行名）
+・有価証券：（証券会社等）
+・その他の財産：（車、保険など）
+・税案件か否か：総額概算など
+
+工程①
+オーダーの通り
+
+工程③
+・遺産分割
+遺産分割状況：
+遺産分割内容：
+具体的な対応：
+・不動産登記
+本人確認方法：本人限定郵便
+
+工程④
+完了報告、お渡し方法は管理者判断
+
+◇付加提案
+・不動産
+・生前対策
+
+◇その他、特記事項、案件固有事情など"""
+
+
+async def format_notes_with_gemini(raw_notes: str) -> str:
+    """PLAUD AI議事録をGeminiで所定フォーマットに整理する"""
+    if not GEMINI_API_KEY or not raw_notes:
+        return raw_notes
+    prompt = (
+        "以下の面談議事録を、指定のフォーマットに整理してください。"
+        "議事録から読み取れる情報を各項目に記入し、不明・未記載の項目は「未確認」または「要確認」と記載してください。"
+        "フォーマットの構造（見出し・項目名）は変えずに、内容だけを埋めてください。\n\n"
+        f"【フォーマット】\n{KOUTE_TEMPLATE}\n\n"
+        f"【議事録】\n{raw_notes[:8000]}"
+    )
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+            headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+        )
+    if r.status_code == 200:
+        try:
+            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception:
+            pass
+    return raw_notes  # フォールバック: 整形失敗時はそのまま返す
+
+
 class ScanDocsRequest(BaseModel):
     hibikyo_record_id: str
     jyunin_record_id: str
@@ -983,12 +1076,13 @@ async def api_scan_docs(req: ScanDocsRequest):
 
     extracted, sources = parse_docs_for_jyunin(combined_text)
 
-    # PLAUD AI議事録を「工程詳細」に追加
+    # PLAUD AI議事録を所定フォーマットに整理して「工程詳細」に追加
     if req.plaud_url:
         plaud_notes = await fetch_plaud_notes(req.plaud_url)
         if plaud_notes:
-            extracted["工程詳細"] = "◇初動指示\n" + plaud_notes
-            sources["工程詳細"] = "PLAUD AI議事録"
+            formatted = await format_notes_with_gemini(plaud_notes)
+            extracted["工程詳細"] = formatted
+            sources["工程詳細"] = "PLAUD AI議事録（Geminiでフォーマット整理済）"
 
     if not extracted:
         return {"message": "書類を読み取りましたが、対象フィールドのデータが抽出できませんでした。", "fields": {}, "sources": {}, "scanned": scanned}
