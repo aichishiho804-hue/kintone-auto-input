@@ -269,8 +269,8 @@ async def extract_text_with_gemini(file_id: str) -> str:
         try:
             return r.json()["candidates"][0]["content"]["parts"][0]["text"]
         except Exception:
-            return ""
-    return ""
+            return f"[parse_error] {r.text[:200]}"
+    return f"[gemini_error_{r.status_code}] {r.text[:300]}"
 
 
 def extract_kana_from_box(text: str, name: str) -> Optional[str]:
