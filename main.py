@@ -901,7 +901,7 @@ def parse_docs_for_jyunin(text: str) -> tuple:
     # 相続人 (相続人フィールド) — 続柄に続く氏名を複数抽出
     heirs = re.findall(r'(?:長男|長女|次男|次女|三男|三女|配偶者)\s+([^\n\s]{2,8})', text)
     if heirs:
-        fields["相続人"] = "、".join(dict.fromkeys(heirs)[:5])
+        fields["相続人"] = "、".join(list(dict.fromkeys(heirs))[:5])
         sources["相続人"] = "戸籍書類（相続人）"
 
     return fields, sources
