@@ -345,6 +345,7 @@ async def search_chatwork(name: str, box_url: str = "") -> dict:
 class SearchRequest(BaseModel):
     customer_name: str
     record_id: str
+    extra_box_url: Optional[str] = None
 
 
 class UpdateRequest(BaseModel):
@@ -418,6 +419,33 @@ async def api_search(req: SearchRequest):
                         auto[key] = val
                 if box_addr:
                     sources["住所系"] = "BOX連絡票から抽出"
+
+    # 2b. 追加BOXファイル（免許証・保険証・マイナンバーカード等）から生年月日・住所を補完
+    if req.extra_box_url:
+        m_extra = re.search(r"https://app\.box\.com/file/(\d+)", req.extra_box_url)
+        if m_extra:
+            extra_text = await get_box_text(m_extra.group(1))
+            if extra_text:
+                # 生年月日（kintoneが空の場合のみ）
+                if not birthdate:
+                    d = parse_date_from_text(extra_text)
+                    if d:
+                        y, mo, day = [int(x) for x in d.split("-")]
+                        _, wareki_year = seireki_to_wareki(y, mo, day)
+                        auto["西暦"] = d
+                        auto["和暦年"] = wareki_year
+                        auto["和暦月"] = mo
+                        auto["和暦日"] = day
+                        auto["依頼人年齢"] = calc_age(d)
+                        sources["和暦・年齢"] = "追加BOXファイル（免許証等）から抽出"
+                # 住所（連絡票から取れなかった場合のみ）
+                if not auto.get("都道府県"):
+                    extra_addr = await extract_address_from_box(extra_text)
+                    for key, val in extra_addr.items():
+                        if val:
+                            auto[key] = val
+                    if extra_addr:
+                        sources["住所系"] = "追加BOXファイル（免許証等）から抽出"
 
     # 3. Chatwork検索
     cw = await search_chatwork(req.customer_name, box_url)

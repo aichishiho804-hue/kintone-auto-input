@@ -101,6 +101,10 @@
         <input type="text" id="record-id" placeholder="例：8920" />
       </div>
     </div>
+    <div class="form-group" style="margin-top:8px;">
+      <label>追加BOXファイルURL（任意）<span style="font-size:0.8em;color:#666;margin-left:6px;">免許証・保険証・マイナンバーカード等から生年月日・住所を補完</span></label>
+      <input type="text" id="extra-box-url" placeholder="https://app.box.com/file/xxxxxxxxxx" style="width:100%;max-width:600px;" />
+    </div>
     <button class="btn btn-primary" id="search-btn" onclick="doSearch()">データを自動取得する</button>
   </div>
 
@@ -211,7 +215,7 @@ async function doSearch() {
     const res = await fetch("/api/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_name: name, record_id: id }),
+      body: JSON.stringify({ customer_name: name, record_id: id, extra_box_url: document.getElementById("extra-box-url").value.trim() || null }),
     });
     if (!res.ok) {
       const err = await res.json();
