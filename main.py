@@ -345,6 +345,30 @@ async def extract_address_from_box(text: str) -> dict:
                 result["町名"] = town
                 result["住所"] = (pref + addr_text) if pref else addr_text
 
+    # Gemini OCR出力形式：「住所: 愛知県瀬戸市...」（郵便番号なし）
+    if not result:
+        m2 = re.search(r'住所\s*[：:]\s*(\S.+)', text)
+        if m2:
+            addr_text = m2.group(1).strip().rstrip("。、，,")
+            addr_text = addr_text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+            if re.match(r'.+?[都道府県]', addr_text):
+                pref, city, town = extract_address_parts(addr_text)
+                result["都道府県"] = pref
+                result["市町村名"] = city
+                result["町名"] = town
+                result["住所"] = addr_text
+
+    # 都道府県を直接検索（Gemini markdown形式で住所: がない場合）
+    if not result:
+        m3 = re.search(r'((?:北海道|(?:青森|岩手|宮城|秋田|山形|福島|茨城|栃木|群馬|埼玉|千葉|東京|神奈川|新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知|三重|滋賀|京都|大阪|兵庫|奈良|和歌山|鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知|福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄)[都道府県])[　-鿿＀-￯\w]+(?:丁目|番地|号|町|村|区)[\w\d-]*)', text)
+        if m3:
+            addr_text = m3.group(1)
+            pref, city, town = extract_address_parts(addr_text)
+            result["都道府県"] = pref
+            result["市町村名"] = city
+            result["町名"] = town
+            result["住所"] = addr_text
+
     return result
 
 
