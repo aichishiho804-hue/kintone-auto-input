@@ -1031,10 +1031,32 @@ async def debug_box_file_text(file_id: str):
         if text_rep:
             result["rep_status"] = text_rep.get("status", {}).get("state", "")
             result["rep_url"] = text_rep.get("content", {}).get("url_template", "")
+        # BOX OCR テキスト
+        box_raw = ""
+        url = text_rep.get("content", {}).get("url_template", "").replace("{+asset_path}", "") if text_rep else ""
+        if url:
+            token2 = await get_box_access_token()
+            async with httpx.AsyncClient(timeout=15) as c2:
+                r2 = await c2.get(url, headers={"Authorization": f"Bearer {token2}"})
+            box_raw = r2.text if r2.status_code == 200 else ""
+        result["box_ocr_length"] = len(box_raw)
+        result["box_jp_chars"] = len(re.findall(r'[぀-鿿]', box_raw))
+
+        # Gemini フォールバックテスト
+        result["gemini_api_key_set"] = bool(GEMINI_API_KEY)
+        if result["box_jp_chars"] < 10 and GEMINI_API_KEY:
+            gemini_text = await extract_text_with_gemini(file_id)
+            result["gemini_text_length"] = len(gemini_text)
+            result["gemini_preview"] = gemini_text[:500] if gemini_text else ""
+            result["gemini_jp_chars"] = len(re.findall(r'[぀-鿿]', gemini_text))
+        else:
+            result["gemini_text_length"] = 0
+            result["gemini_preview"] = "(BOX OCRが正常なためスキップ)"
+
         text = await get_box_text(file_id)
         addr = await extract_address_from_box(text) if text else {}
-        result["text_length"] = len(text)
-        result["text_preview"] = text[:500] if text else ""
+        result["final_text_length"] = len(text)
+        result["final_text_preview"] = text[:500] if text else ""
         result["address_extracted"] = addr
         return result
     except Exception as e:
