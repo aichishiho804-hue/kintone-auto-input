@@ -1305,20 +1305,20 @@ async def debug_box_file_text(file_id: str):
 
 
 @app.get("/api/debug/jyunin_fields")
-async def debug_jyunin_fields(record_id: str):
+async def debug_jyunin_fields(record_id: int):
     """受任管理表（app56）のフィールドコード一覧を確認するデバッグ用"""
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(
             f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
             headers={"X-Cybozu-API-Token": JYUNIN_TOKEN},
-            params={"app": JYUNIN_APP_ID, "id": record_id},
+            params={"app": int(JYUNIN_APP_ID), "id": record_id},
         )
     if r.status_code != 200:
         return {"error": r.text}
     record = r.json().get("record", {})
     return {
-        "field_codes": list(record.keys()),
-        "fields_with_values": {k: v.get("value", "")[:50] for k, v in record.items() if v.get("value")},
+        "field_codes": sorted(record.keys()),
+        "fields_with_values": {k: str(v.get("value", ""))[:80] for k, v in record.items() if v.get("value")},
     }
 
 
