@@ -259,7 +259,7 @@ async def extract_text_with_gemini(file_id: str) -> str:
     )
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
             json={"contents": [{"parts": [
                 {"text": prompt},
@@ -1061,7 +1061,8 @@ async def debug_box_file_text(file_id: str):
         result["address_extracted"] = addr
         return result
     except Exception as e:
-        return {"error": str(e)}
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()[-500:]}
 
 
 @app.get("/")
