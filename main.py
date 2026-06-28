@@ -1036,7 +1036,11 @@ async def api_resume(req: ResumeRequest):
     """反響管理表レコードIDから顧客情報・受任管理表情報を復元して返す"""
     # 1. 反響管理表からレコード取得
     record = await get_kintone_record(req.hibikyo_record_id)
-    customer_name = record.get("顧客名", {}).get("value", "") or record.get("名前", {}).get("value", "")
+    customer_name = (
+        record.get("相談者名", {}).get("value", "")
+        or record.get("顧客名", {}).get("value", "")
+        or record.get("名前", {}).get("value", "")
+    )
 
     # 2. 受任管理表を反響レコード番号で検索
     jyunin_record_id = None
