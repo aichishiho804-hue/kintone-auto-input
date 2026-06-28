@@ -163,6 +163,10 @@
     <div class="alert alert-info" style="font-size:13px; margin-bottom:16px;">
       ①②③⑥フォルダにアップロードされた書類（戸籍謄本・免許証など）を読み取り、受任管理表の未入力項目を自動入力します。
     </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label style="font-size:13px;font-weight:600;">PLAUD AI議事録URL（任意）<span style="font-size:0.85em;color:#666;margin-left:6px;">面談録音のAI議事録を「工程詳細」に自動入力</span></label>
+      <input type="text" id="plaud-url" placeholder="https://web.plaud.ai/s/pub_xxxxxxxx::..." style="width:100%;max-width:700px;margin-top:4px;" />
+    </div>
     <button class="btn btn-orange" id="scan-btn" onclick="doScanDocs()">BOX書類を読み取ってkintoneに追加入力する</button>
     <div id="scan-result" style="margin-top:16px;"></div>
     <button class="btn btn-primary" style="margin-top:12px" onclick="reset()">別の顧客を入力する</button>
@@ -487,6 +491,7 @@ async function doScanDocs() {
         jyunin_record_id: currentJyuninData.jyunin_record_id,
         customer_name: currentJyuninData.folder_name || currentData.customer_name,
         box_folder_id: currentJyuninData.box_folder_id || null,
+        plaud_url: document.getElementById("plaud-url")?.value?.trim() || null,
       }),
     });
     const result = await res.json();

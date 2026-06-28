@@ -907,11 +907,44 @@ def parse_docs_for_jyunin(text: str) -> tuple:
     return fields, sources
 
 
+async def fetch_plaud_notes(plaud_url: str) -> str:
+    """PLAUD公開URLからAI議事録テキストを取得"""
+    m = re.search(r'web\.plaud\.ai/(?:s|nshare)/(pub_[^?\s#]+)', plaud_url)
+    if not m:
+        return ""
+    token = m.group(1)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://web.plaud.ai/",
+        "Origin": "https://web.plaud.ai",
+    }
+    for region in ["api-apne1", "api-use1", "api"]:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(
+                    f"https://{region}.plaud.ai/share/access/{token}",
+                    headers=headers,
+                )
+            if r.status_code == 200:
+                data = r.json()
+                notes = data.get("data_file", {}).get("notes_list", [])
+                if notes:
+                    return notes[0].get("data_content", "")
+                # フォールバック: polish transcript
+                polish = data.get("data_file", {}).get("transaction_polish", "")
+                if polish:
+                    return polish
+        except Exception:
+            continue
+    return ""
+
+
 class ScanDocsRequest(BaseModel):
     hibikyo_record_id: str
     jyunin_record_id: str
     customer_name: str
-    box_folder_id: Optional[str] = None  # create_foldersで取得したフォルダID
+    box_folder_id: Optional[str] = None
+    plaud_url: Optional[str] = None
 
 
 @app.post("/api/jyunin/scan_docs")
@@ -949,6 +982,14 @@ async def api_scan_docs(req: ScanDocsRequest):
         return {"message": "書類が見つかりませんでした。BOXに書類をアップロードしてから実行してください。", "fields": {}, "sources": {}, "scanned": []}
 
     extracted, sources = parse_docs_for_jyunin(combined_text)
+
+    # PLAUD AI議事録を「工程詳細」に追加
+    if req.plaud_url:
+        plaud_notes = await fetch_plaud_notes(req.plaud_url)
+        if plaud_notes:
+            extracted["工程詳細"] = "◇初動指示\n" + plaud_notes
+            sources["工程詳細"] = "PLAUD AI議事録"
+
     if not extracted:
         return {"message": "書類を読み取りましたが、対象フィールドのデータが抽出できませんでした。", "fields": {}, "sources": {}, "scanned": scanned}
 
