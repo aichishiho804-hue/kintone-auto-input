@@ -1027,6 +1027,45 @@ async def api_scan_docs(req: ScanDocsRequest):
     }
 
 
+class ResumeRequest(BaseModel):
+    hibikyo_record_id: str
+
+
+@app.post("/api/resume")
+async def api_resume(req: ResumeRequest):
+    """反響管理表レコードIDから顧客情報・受任管理表情報を復元して返す"""
+    # 1. 反響管理表からレコード取得
+    record = await get_kintone_record(req.hibikyo_record_id)
+    customer_name = record.get("顧客名", {}).get("value", "") or record.get("名前", {}).get("value", "")
+
+    # 2. 受任管理表を反響レコード番号で検索
+    jyunin_record_id = None
+    box_folder_id = None
+    async with httpx.AsyncClient(timeout=10) as client:
+        rj = await client.get(
+            f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/records.json",
+            headers={"X-Cybozu-API-Token": JYUNIN_TOKEN},
+            params={
+                "app": JYUNIN_APP_ID,
+                "query": f'反響レコード番号 = {req.hibikyo_record_id}',
+                "fields[0]": "$id",
+                "fields[1]": "BOXフォルダID",
+            },
+        )
+    if rj.status_code == 200 and rj.json().get("records"):
+        jr = rj.json()["records"][0]
+        jyunin_record_id = jr["$id"]["value"]
+        box_folder_id = jr.get("BOXフォルダID", {}).get("value") or None
+
+    return {
+        "customer_name": customer_name,
+        "record_id": req.hibikyo_record_id,
+        "jyunin_record_id": jyunin_record_id,
+        "box_folder_id": box_folder_id,
+        "has_jyunin": jyunin_record_id is not None,
+    }
+
+
 @app.get("/api/debug/box_search")
 async def debug_box_search(name: str):
     results = {"search_name": name, "parent_folder_id": BOX_JYUNIN_PARENT_FOLDER}

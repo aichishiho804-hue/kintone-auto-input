@@ -66,6 +66,12 @@
   .message-preview-label { font-size: 11px; font-weight: 700; color: #718096; margin-top: 16px; margin-bottom: 4px; }
 
   #step2, #step3, #step4, #step5, #step6 { display: none; }
+  #resume-panel { display: none; }
+  .resume-step-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .resume-step-btn { padding: 8px 14px; border-radius: 8px; border: 1.5px solid #e2e8f0; background: white; font-size: 12px; font-weight: 600; cursor: pointer; color: #4a5568; transition: all .15s; }
+  .resume-step-btn:hover { border-color: #2b6cb0; color: #2b6cb0; background: #ebf8ff; }
+  .resume-step-btn.selected { border-color: #2b6cb0; background: #2b6cb0; color: white; }
+  .btn-link { background: none; border: none; color: #2b6cb0; font-size: 13px; cursor: pointer; text-decoration: underline; padding: 0; }
   .section-title { font-size: 12px; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 8px; }
 
   .folder-result { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
@@ -86,6 +92,33 @@
 </header>
 
 <div class="container">
+
+  <!-- 途中から再開 -->
+  <div class="card" style="padding:20px 28px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:13px;color:#718096;">既存顧客の続きから作業する場合</span>
+      <button class="btn-link" onclick="toggleResume()">途中から再開する ▼</button>
+    </div>
+    <div id="resume-panel" style="margin-top:14px;">
+      <div id="resume-alert"></div>
+      <div class="form-row" style="align-items:flex-end;">
+        <div class="form-group">
+          <label>kintone レコードID（反響管理表）</label>
+          <input type="text" id="resume-record-id" placeholder="例：8616" />
+        </div>
+        <div class="form-group">
+          <label>再開するステップ</label>
+          <div class="resume-step-grid" id="resume-step-grid">
+            <button class="resume-step-btn" data-step="3" onclick="selectResumeStep(3)">Step 3｜受任管理表へ進む</button>
+            <button class="resume-step-btn" data-step="4" onclick="selectResumeStep(4)">Step 4｜受任管理表 入力</button>
+            <button class="resume-step-btn" data-step="5" onclick="selectResumeStep(5)">Step 5｜BOXフォルダ作成</button>
+            <button class="resume-step-btn" data-step="6" onclick="selectResumeStep(6)">Step 6｜書類スキャン</button>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="resume-btn" onclick="doResume()" style="margin-top:12px;max-width:200px;">再開する</button>
+    </div>
+  </div>
 
   <!-- STEP 1: 入力 -->
   <div class="card" id="step1">
@@ -196,6 +229,99 @@ const JYUNIN_AUTO_LABELS = {
   "被相続人から見た依頼者の続柄": "被相続人から見た依頼者の続柄",
   "西暦2": "相続開始（死亡）日",
 };
+
+let resumeStep = null;
+
+function toggleResume() {
+  const p = document.getElementById("resume-panel");
+  const btn = event.target;
+  if (p.style.display === "none") {
+    p.style.display = "block";
+    btn.textContent = "途中から再開する ▲";
+  } else {
+    p.style.display = "none";
+    btn.textContent = "途中から再開する ▼";
+  }
+}
+
+function selectResumeStep(step) {
+  resumeStep = step;
+  document.querySelectorAll(".resume-step-btn").forEach(b => {
+    b.classList.toggle("selected", parseInt(b.dataset.step) === step);
+  });
+}
+
+async function doResume() {
+  const id = document.getElementById("resume-record-id").value.trim();
+  if (!id) { showAlert("resume-alert", "レコードIDを入力してください"); return; }
+  if (!resumeStep) { showAlert("resume-alert", "再開するステップを選択してください"); return; }
+
+  const btn = document.getElementById("resume-btn");
+  btn.disabled = true;
+  btn.textContent = "読み込み中...";
+  showAlert("resume-alert", "");
+
+  try {
+    const res = await fetch("/api/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hibikyo_record_id: id }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "取得エラー"); }
+    const data = await res.json();
+
+    // currentData を最低限復元
+    currentData = { customer_name: data.customer_name, record_id: data.record_id, auto: {}, manual: {}, sources: {} };
+
+    if (resumeStep >= 4 && !data.has_jyunin) {
+      throw new Error("受任管理表が見つかりません。先にStep 3を完了してください。");
+    }
+
+    if (data.has_jyunin) {
+      currentJyuninData = {
+        jyunin_record_id: data.jyunin_record_id,
+        folder_name: data.customer_name,
+        box_folder_id: data.box_folder_id,
+      };
+    }
+
+    // 指定ステップを表示
+    const stepIds = ["step2","step3","step4","step5","step6"];
+    stepIds.forEach(s => document.getElementById(s).style.display = "none");
+
+    if (resumeStep === 3) {
+      document.getElementById("step3-result").innerHTML =
+        `<div class="alert alert-info">【${data.customer_name}】を再開します。受任管理表へ進んでください。</div>`;
+      document.getElementById("step3").style.display = "block";
+      document.getElementById("step3").scrollIntoView({ behavior: "smooth" });
+    } else if (resumeStep === 4) {
+      // 受任管理表データを取得してStep4を表示
+      const res4 = await fetch("/api/jyunin/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_name: data.customer_name, hibikyo_record_id: data.record_id }),
+      });
+      if (!res4.ok) { const e = await res4.json(); throw new Error(e.detail); }
+      currentJyuninData = await res4.json();
+      renderStep4(currentJyuninData);
+      document.getElementById("step4").style.display = "block";
+      document.getElementById("step4").scrollIntoView({ behavior: "smooth" });
+    } else if (resumeStep === 5) {
+      document.getElementById("step5-result").innerHTML =
+        `<div class="alert alert-info">【${data.customer_name}】Step 5から再開します。</div>`;
+      document.getElementById("step5").style.display = "block";
+      document.getElementById("step5").scrollIntoView({ behavior: "smooth" });
+    } else if (resumeStep === 6) {
+      document.getElementById("step6").style.display = "block";
+      document.getElementById("step6").scrollIntoView({ behavior: "smooth" });
+    }
+  } catch (e) {
+    showAlert("resume-alert", `エラー: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "再開する";
+  }
+}
 
 function showAlert(containerId, msg, type = "error") {
   document.getElementById(containerId).innerHTML =
