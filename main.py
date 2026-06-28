@@ -259,7 +259,7 @@ async def extract_text_with_gemini(file_id: str) -> str:
     )
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
             json={"contents": [{"parts": [
                 {"text": prompt},
