@@ -384,17 +384,17 @@ function renderStep2(data) {
   manEl.innerHTML = "";
 
   const LABELS = {
-    "都道府県": "都道府県", "市町村名": "市町村名", "町名": "町名",
+    "都道府県": "都道府県", "市町村": "市町村", "町名": "町名",
+    "address": "住所", "zipcode": "郵便番号",
     "ふりがな": "ふりがな", "和暦年": "和暦年", "和暦月": "和暦月",
     "和暦日": "和暦日", "依頼人年齢": "依頼人年齢", "面談担当者": "面談担当者",
     "受任日": "受任日", "完了予定日": "完了予定日", "面談": "面談",
     "ドロップダウン_6": "受任", "商品選択反": "商品選択",
-    "文字列__1行_": "郵便番号",
   };
 
   for (const [key, val] of Object.entries(data.auto_fields)) {
     const label = LABELS[key] || key;
-    const addrKeys = ["都道府県","市町村名","町名","住所","文字列__1行_"];
+    const addrKeys = ["都道府県","市町村","町名","address","zipcode"];
     const warekiKeys = ["和暦年","和暦月","和暦日","依頼人年齢"];
     let src = data.sources[key] || "";
     if (!src && addrKeys.includes(key)) src = data.sources["住所系"] || "";
@@ -619,7 +619,9 @@ async function doCreateFolders() {
 const SCAN_LABELS = {
   "西暦3": "被相続人出生日", "address_0": "被相続人本籍", "文字列__1行__4": "戸主",
   "被相続人から見た依頼者の続柄": "続柄", "西暦": "依頼者出生日",
-  "address_2": "依頼者本籍", "相続人": "相続人", "工程詳細": "工程詳細",
+  "address_2": "依頼者本籍", "相続人": "相続人",
+  "オーダー特記事項1": "工程詳細",
+  "address": "住所", "zipcode": "郵便番号", "都道府県": "都道府県", "市町村": "市町村", "町名": "町名",
 };
 
 let scanPayload = null;  // プレビュー結果を保持
@@ -639,7 +641,7 @@ function renderScanFields(fields, sources, container) {
   let html = `<div class="field-list">`;
   for (const [k, v] of Object.entries(fields)) {
     const label = SCAN_LABELS[k] || k;
-    const preview = k === "工程詳細" ? `<pre style="white-space:pre-wrap;font-size:12px;max-height:200px;overflow:auto;background:#f7fafc;padding:8px;border-radius:6px;margin-top:4px">${escapeHtml(String(v).substring(0, 600))}${v.length > 600 ? "…" : ""}</pre>` : `<span class="field-value">${escapeHtml(String(v))}</span>`;
+    const preview = k === "オーダー特記事項1" ? `<pre style="white-space:pre-wrap;font-size:12px;max-height:200px;overflow:auto;background:#f7fafc;padding:8px;border-radius:6px;margin-top:4px">${escapeHtml(String(v).substring(0, 600))}${v.length > 600 ? "…" : ""}</pre>` : `<span class="field-value">${escapeHtml(String(v))}</span>`;
     html += `<div class="field-item auto" style="display:block;padding:10px 14px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
         <span class="field-label">${label}</span>

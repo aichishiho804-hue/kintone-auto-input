@@ -316,7 +316,7 @@ async def extract_address_from_box(text: str) -> dict:
     addr_match = re.search(r'住所\s*[（(〒]?\s*〒?([\d-]{7,8})[）)]?\s*(.+)', text)
     if addr_match:
         zipcode = addr_match.group(1).replace("-", "-")
-        result["文字列__1行_"] = zipcode  # 郵便番号
+        result["zipcode"] = zipcode  # 郵便番号
         addr_text = addr_match.group(2).strip()
 
         # 全角数字→半角に正規化
@@ -326,9 +326,9 @@ async def extract_address_from_box(text: str) -> dict:
         if re.match(r'.+?[都道府県]', addr_text):
             pref, city, town = extract_address_parts(addr_text)
             result["都道府県"] = pref
-            result["市町村名"] = city
+            result["市町村"] = city
             result["町名"] = town
-            result["住所"] = addr_text
+            result["address"] = addr_text
         else:
             # 都道府県なし → 郵便番号APIで補完
             pref = await lookup_prefecture_from_zip(zipcode)
@@ -340,7 +340,7 @@ async def extract_address_from_box(text: str) -> dict:
                 rest = addr_text[len(city):]
                 town = re.sub(r'字', '', rest)
                 town = re.sub(r'[\d０-９]+番地.*$', '', town).strip()
-                result["市町村名"] = city
+                result["市町村"] = city
                 result["町名"] = town
                 result["住所"] = (pref + addr_text) if pref else addr_text
 
@@ -353,9 +353,9 @@ async def extract_address_from_box(text: str) -> dict:
             if re.match(r'.+?[都道府県]', addr_text):
                 pref, city, town = extract_address_parts(addr_text)
                 result["都道府県"] = pref
-                result["市町村名"] = city
+                result["市町村"] = city
                 result["町名"] = town
-                result["住所"] = addr_text
+                result["address"] = addr_text
 
     # 都道府県を直接検索（Gemini markdown形式で住所: がない場合）
     if not result:
@@ -364,9 +364,9 @@ async def extract_address_from_box(text: str) -> dict:
             addr_text = m3.group(1)
             pref, city, town = extract_address_parts(addr_text)
             result["都道府県"] = pref
-            result["市町村名"] = city
+            result["市町村"] = city
             result["町名"] = town
-            result["住所"] = addr_text
+            result["address"] = addr_text
 
     return result
 
@@ -1087,13 +1087,13 @@ async def api_scan_docs(req: ScanDocsRequest):
 
     extracted, sources = parse_docs_for_jyunin(combined_text)
 
-    # PLAUD AI議事録を所定フォーマットに整理して「工程詳細」に追加
+    # PLAUD AI議事録を所定フォーマットに整理して「オーダー特記事項1」（工程詳細）に追加
     if req.plaud_url:
         plaud_notes = await fetch_plaud_notes(req.plaud_url)
         if plaud_notes:
             formatted = await format_notes_with_gemini(plaud_notes)
-            extracted["工程詳細"] = formatted
-            sources["工程詳細"] = "PLAUD AI議事録（Geminiでフォーマット整理済）"
+            extracted["オーダー特記事項1"] = formatted
+            sources["オーダー特記事項1"] = "PLAUD AI議事録（Geminiでフォーマット整理済）"
 
     if not extracted:
         return {"message": "書類を読み取りましたが、対象フィールドのデータが抽出できませんでした。", "fields": {}, "sources": {}, "scanned": scanned, "dry_run": req.dry_run}
@@ -1109,8 +1109,8 @@ async def api_scan_docs(req: ScanDocsRequest):
     # kintoneに存在するフィールドコード一覧（デバッグ用）
     available_fields = list(current.keys()) if current else []
 
-    # PLAUD議事録フィールドは既入力でも常に上書き
-    ALWAYS_OVERWRITE_FIELDS = {"工程詳細"}
+    # PLAUD議事録フィールドは既入力でも常に上書き（フィールドコード: オーダー特記事項1 = 工程詳細）
+    ALWAYS_OVERWRITE_FIELDS = {"オーダー特記事項1"}
 
     update_body = {}
     preview = {}   # 入力予定の全フィールド（既入力含む）
