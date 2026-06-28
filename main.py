@@ -216,11 +216,10 @@ async def get_box_text(file_id: str) -> str:
         r2 = await client.get(url, headers={"Authorization": f"Bearer {token}"})
         text = r2.text if r2.status_code == 200 else ""
 
-    # BOX OCR が文字化け（日本語文字がほぼない）場合は Gemini にフォールバック
-    jp_chars = len(re.findall(r'[぀-鿿]', text))
-    if jp_chars < 10 and GEMINI_API_KEY:
+    # Gemini が設定されていれば常に Gemini で OCR（BOX OCR より精度が高い）
+    if GEMINI_API_KEY:
         gemini_text = await extract_text_with_gemini(file_id)
-        if gemini_text:
+        if gemini_text and not gemini_text.startswith("[gemini_error"):
             return gemini_text
     return text
 
