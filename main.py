@@ -342,7 +342,7 @@ async def extract_address_from_box(text: str) -> dict:
                 town = re.sub(r'[\d０-９]+番地.*$', '', town).strip()
                 result["市町村"] = city
                 result["町名"] = town
-                result["住所"] = (pref + addr_text) if pref else addr_text
+                result["address"] = (pref + addr_text) if pref else addr_text
 
     # Gemini OCR出力形式：「住所: 愛知県瀬戸市...」（郵便番号なし）
     if not result:
