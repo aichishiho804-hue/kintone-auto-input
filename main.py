@@ -27,6 +27,7 @@ _box_token_expires_at: float = 0.0  # epoch seconds
 
 RENDER_API_KEY = os.getenv("RENDER_API_KEY", "")
 RENDER_SERVICE_ID = os.getenv("RENDER_SERVICE_ID", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 import time
 
@@ -213,7 +214,63 @@ async def get_box_text(file_id: str) -> str:
         if not url:
             return ""
         r2 = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-        return r2.text if r2.status_code == 200 else ""
+        text = r2.text if r2.status_code == 200 else ""
+
+    # BOX OCR が文字化け（日本語文字がほぼない）場合は Gemini にフォールバック
+    jp_chars = len(re.findall(r'[぀-鿿]', text))
+    if jp_chars < 10 and GEMINI_API_KEY:
+        gemini_text = await extract_text_with_gemini(file_id)
+        if gemini_text:
+            return gemini_text
+    return text
+
+
+async def get_box_file_bytes(file_id: str) -> tuple[bytes, str]:
+    """BOXファイルをバイト列で取得。(bytes, content_type) を返す"""
+    token = await get_box_access_token()
+    if not token:
+        return b"", ""
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        r = await client.get(
+            f"https://api.box.com/2.0/files/{file_id}/content",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if r.status_code == 200:
+        ct = r.headers.get("content-type", "application/octet-stream").split(";")[0]
+        return r.content, ct
+    return b"", ""
+
+
+async def extract_text_with_gemini(file_id: str) -> str:
+    """GeminiにBOXファイルを送りOCRテキストを取得"""
+    import base64
+    if not GEMINI_API_KEY:
+        return ""
+    file_bytes, content_type = await get_box_file_bytes(file_id)
+    if not file_bytes:
+        return ""
+    # 画像・PDF以外はスキップ
+    if content_type not in ("application/pdf", "image/jpeg", "image/png", "image/webp"):
+        content_type = "application/pdf"  # デフォルトはPDFとして試みる
+    encoded = base64.b64encode(file_bytes).decode()
+    prompt = (
+        "この書類に記載されている全ての情報をテキストとして抽出してください。"
+        "特に生年月日（例：昭和○年○月○日、平成○年○月○日）、住所、氏名を正確に読み取ってください。"
+    )
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
+            json={"contents": [{"parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": content_type, "data": encoded}},
+            ]}]},
+        )
+    if r.status_code == 200:
+        try:
+            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception:
+            return ""
+    return ""
 
 
 def extract_kana_from_box(text: str, name: str) -> Optional[str]:
