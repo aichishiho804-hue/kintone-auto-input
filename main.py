@@ -1039,10 +1039,49 @@ async def format_notes_with_gemini(raw_notes: str) -> str:
         )
     if r.status_code == 200:
         try:
-            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            return _fix_line_breaks(text)
         except Exception:
             pass
     return raw_notes  # フォールバック: 整形失敗時はそのまま返す
+
+
+def _fix_line_breaks(text: str) -> str:
+    """Geminiが改行を省略した場合に、テンプレート構造に合わせて改行を挿入する"""
+    import re
+    # 見出し・項目の直前に改行を強制挿入するパターン
+    patterns = [
+        r'(?<!\n)(◇)',                           # ◇見出し
+        r'(?<!\n)((?:[①②③④⑤⑥⑦⑧⑨⑩]))',       # 丸数字
+        r'(?<!\n)((?:[１２３４５６７８９])\．)',    # 全角数字.
+        r'(?<!\n)(工程[①②③④⑤⑥])',              # 工程①②...
+        r'(?<!\n)(被相続人[①②③])',               # 被相続人①②
+        r'(?<!\n)(相続人[①②③④⑤])',              # 相続人①②
+        r'(?<!\n)(被相続人：)',
+        r'(?<!\n)(本籍：)',
+        r'(?<!\n)(住所：)',
+        r'(?<!\n)(生年月日：)',
+        r'(?<!\n)(死亡日：)',
+        r'(?<!\n)(筆頭者：)',
+        r'(?<!\n)(相続人間関係性：)',
+        r'(?<!\n)(相続人（ふりがな）：)',
+        r'(?<!\n)(続き柄：)',
+        r'(?<!\n)(遺産分割状況：)',
+        r'(?<!\n)(遺産分割内容：)',
+        r'(?<!\n)(具体的な対応：)',
+        r'(?<!\n)(本人確認方法：)',
+        r'(?<!\n)(・不動産[：（])',
+        r'(?<!\n)(・預貯金[：（])',
+        r'(?<!\n)(・有価証券[：（])',
+        r'(?<!\n)(・その他の財産[：（])',
+        r'(?<!\n)(・税案件か否か[：（])',
+        r'(?<!\n)(・生前対策[：（])',
+    ]
+    for pat in patterns:
+        text = re.sub(pat, r'\n\1', text)
+    # 連続する改行を最大2つに正規化
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
 class ScanDocsRequest(BaseModel):
