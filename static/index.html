@@ -294,7 +294,7 @@ async function doResume() {
     if (data.has_jyunin) {
       currentJyuninData = {
         jyunin_record_id: data.jyunin_record_id,
-        folder_name: data.customer_name,
+        folder_name: data.folder_name || data.customer_name,
         box_folder_id: data.box_folder_id,
       };
     }

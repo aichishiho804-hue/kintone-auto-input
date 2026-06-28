@@ -1045,10 +1045,20 @@ class ScanDocsRequest(BaseModel):
 async def api_scan_docs(req: ScanDocsRequest):
     # フォルダIDが直接渡された場合は再検索不要
     folder_id = req.box_folder_id
+    folder_name = req.customer_name
     if not folder_id:
-        folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, req.customer_name)
+        # kintone受任管理表の相談者名でBOXフォルダを検索（create_foldersと同じロジック）
+        async with httpx.AsyncClient(timeout=10) as client:
+            r56 = await client.get(
+                f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/records.json",
+                headers={"X-Cybozu-API-Token": JYUNIN_TOKEN},
+                params={"app": JYUNIN_APP_ID, "query": f'反響レコード番号 = {req.hibikyo_record_id}', "fields[0]": "相談者名"},
+            )
+        if r56.status_code == 200 and r56.json().get("records"):
+            folder_name = r56.json()["records"][0].get("相談者名", {}).get("value", "") or req.customer_name
+        folder_id = await find_box_folder_by_name(BOX_JYUNIN_PARENT_FOLDER, folder_name)
     if not folder_id:
-        raise HTTPException(status_code=404, detail=f"BOXに「{req.customer_name}」フォルダが見つかりません。")
+        raise HTTPException(status_code=404, detail=f"BOXに「{folder_name}」フォルダが見つかりません。")
 
     # サブフォルダ一覧取得
     token = await get_box_access_token()
@@ -1170,16 +1180,18 @@ async def api_resume(req: ResumeRequest):
                 "app": JYUNIN_APP_ID,
                 "query": f'反響レコード番号 = {req.hibikyo_record_id}',
                 "fields[0]": "$id",
-                "fields[1]": "BOXフォルダID",
+                "fields[1]": "相談者名",
             },
         )
+    jyunin_folder_name = customer_name
     if rj.status_code == 200 and rj.json().get("records"):
         jr = rj.json()["records"][0]
         jyunin_record_id = jr["$id"]["value"]
-        box_folder_id = jr.get("BOXフォルダID", {}).get("value") or None
+        jyunin_folder_name = jr.get("相談者名", {}).get("value", "") or customer_name
 
     return {
         "customer_name": customer_name,
+        "folder_name": jyunin_folder_name,  # BOXフォルダ検索用（受任管理表の相談者名）
         "record_id": req.hibikyo_record_id,
         "jyunin_record_id": jyunin_record_id,
         "box_folder_id": box_folder_id,
