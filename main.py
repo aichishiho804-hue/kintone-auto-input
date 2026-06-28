@@ -1038,6 +1038,7 @@ class ScanDocsRequest(BaseModel):
     customer_name: str
     box_folder_id: Optional[str] = None
     plaud_url: Optional[str] = None
+    dry_run: bool = False  # True=プレビューのみ（kintone書き込みなし）
 
 
 @app.post("/api/jyunin/scan_docs")
@@ -1085,9 +1086,9 @@ async def api_scan_docs(req: ScanDocsRequest):
             sources["工程詳細"] = "PLAUD AI議事録（Geminiでフォーマット整理済）"
 
     if not extracted:
-        return {"message": "書類を読み取りましたが、対象フィールドのデータが抽出できませんでした。", "fields": {}, "sources": {}, "scanned": scanned}
+        return {"message": "書類を読み取りましたが、対象フィールドのデータが抽出できませんでした。", "fields": {}, "sources": {}, "scanned": scanned, "dry_run": req.dry_run}
 
-    # 現在のapp56レコードを取得して未入力フィールドのみ更新
+    # 現在のapp56レコードを取得して未入力フィールドのみ対象にする
     async with httpx.AsyncClient(timeout=10) as client:
         r56 = await client.get(
             f"https://{KINTONE_DOMAIN}/k/guest/{KINTONE_GUEST_ID}/v1/record.json",
@@ -1095,14 +1096,33 @@ async def api_scan_docs(req: ScanDocsRequest):
             params={"app": JYUNIN_APP_ID, "id": req.jyunin_record_id},
         )
     current = r56.json().get("record", {}) if r56.status_code == 200 else {}
+    # kintoneに存在するフィールドコード一覧（デバッグ用）
+    available_fields = list(current.keys()) if current else []
 
     update_body = {}
-    updated = {}
+    preview = {}   # 入力予定の全フィールド（既入力含む）
+    skipped = {}   # 既入力のためスキップ
     for key, val in extracted.items():
-        if not current.get(key, {}).get("value") and val:
+        existing = current.get(key, {}).get("value", "")
+        if existing:
+            skipped[key] = existing
+        else:
             update_body[key] = {"value": val}
-            updated[key] = val
+            preview[key] = val
 
+    # dry_run=True の場合はプレビューのみ返す（kintone書き込みなし）
+    if req.dry_run:
+        return {
+            "dry_run": True,
+            "message": f"{len(preview)}件を入力予定、{len(skipped)}件は既入力のためスキップ",
+            "fields": preview,
+            "skipped": skipped,
+            "sources": sources,
+            "scanned": scanned,
+            "available_fields": available_fields,
+        }
+
+    updated = {}
     if update_body:
         async with httpx.AsyncClient(timeout=10) as client:
             ru = await client.put(
@@ -1112,10 +1132,13 @@ async def api_scan_docs(req: ScanDocsRequest):
             )
         if ru.status_code != 200:
             raise HTTPException(status_code=ru.status_code, detail=f"kintone更新エラー: {ru.text}")
+        updated = preview
 
     return {
+        "dry_run": False,
         "message": f"{len(updated)}件のフィールドを自動入力しました。" if updated else "新たに入力できる項目はありませんでした（既入力済）。",
         "fields": updated,
+        "skipped": skipped,
         "sources": sources,
         "scanned": scanned,
     }

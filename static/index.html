@@ -193,14 +193,28 @@
   <!-- STEP 6: BOX書類スキャン -->
   <div class="card" id="step6">
     <h2 data-step="6" class="green">BOX書類から追加自動入力</h2>
-    <div class="alert alert-info" style="font-size:13px; margin-bottom:16px;">
-      ①②③⑥フォルダにアップロードされた書類（戸籍謄本・免許証など）を読み取り、受任管理表の未入力項目を自動入力します。
+    <!-- 6a: 入力フォーム -->
+    <div id="step6-form">
+      <div class="alert alert-info" style="font-size:13px; margin-bottom:16px;">
+        ①②③⑥フォルダにアップロードされた書類（戸籍謄本・免許証など）を読み取り、受任管理表の未入力項目を自動入力します。
+      </div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:13px;font-weight:600;">PLAUD AI議事録URL（任意）<span style="font-size:0.85em;color:#666;margin-left:6px;">面談録音のAI議事録を「工程詳細」に自動入力</span></label>
+        <input type="text" id="plaud-url" placeholder="https://web.plaud.ai/s/pub_xxxxxxxx::..." style="width:100%;max-width:700px;margin-top:4px;" />
+      </div>
+      <button class="btn btn-orange" id="scan-btn" onclick="doScanPreview()">書類を読み取って入力内容を確認する</button>
     </div>
-    <div class="form-group" style="margin-bottom:12px;">
-      <label style="font-size:13px;font-weight:600;">PLAUD AI議事録URL（任意）<span style="font-size:0.85em;color:#666;margin-left:6px;">面談録音のAI議事録を「工程詳細」に自動入力</span></label>
-      <input type="text" id="plaud-url" placeholder="https://web.plaud.ai/s/pub_xxxxxxxx::..." style="width:100%;max-width:700px;margin-top:4px;" />
+    <!-- 6b: プレビュー -->
+    <div id="step6-preview" style="display:none;">
+      <div class="alert alert-warning" style="font-size:13px;margin-bottom:12px;">以下の内容をkintoneに入力します。確認してから「入力する」を押してください。</div>
+      <div id="scan-preview-fields" class="field-list"></div>
+      <div id="scan-skipped-area" style="margin-top:12px;"></div>
+      <div style="display:flex;gap:12px;margin-top:16px;">
+        <button class="btn btn-success" id="scan-confirm-btn" onclick="doScanConfirm()" style="width:auto;padding:12px 32px;">kintoneに入力する</button>
+        <button class="btn" onclick="cancelScanPreview()" style="background:#e2e8f0;color:#4a5568;width:auto;padding:12px 20px;">戻る</button>
+      </div>
     </div>
-    <button class="btn btn-orange" id="scan-btn" onclick="doScanDocs()">BOX書類を読み取ってkintoneに追加入力する</button>
+    <!-- 6c: 完了 -->
     <div id="scan-result" style="margin-top:16px;"></div>
     <button class="btn btn-primary" style="margin-top:12px" onclick="reset()">別の顧客を入力する</button>
   </div>
@@ -602,54 +616,130 @@ async function doCreateFolders() {
   }
 }
 
-async function doScanDocs() {
+const SCAN_LABELS = {
+  "西暦3": "被相続人出生日", "address_0": "被相続人本籍", "文字列__1行__4": "戸主",
+  "被相続人から見た依頼者の続柄": "続柄", "西暦": "依頼者出生日",
+  "address_2": "依頼者本籍", "相続人": "相続人", "工程詳細": "工程詳細",
+};
+
+let scanPayload = null;  // プレビュー結果を保持
+
+function buildScanBody(dryRun) {
+  return {
+    hibikyo_record_id: currentData.record_id,
+    jyunin_record_id: currentJyuninData.jyunin_record_id,
+    customer_name: currentJyuninData.folder_name || currentData.customer_name,
+    box_folder_id: currentJyuninData.box_folder_id || null,
+    plaud_url: document.getElementById("plaud-url")?.value?.trim() || null,
+    dry_run: dryRun,
+  };
+}
+
+function renderScanFields(fields, sources, container) {
+  let html = `<div class="field-list">`;
+  for (const [k, v] of Object.entries(fields)) {
+    const label = SCAN_LABELS[k] || k;
+    const preview = k === "工程詳細" ? `<pre style="white-space:pre-wrap;font-size:12px;max-height:200px;overflow:auto;background:#f7fafc;padding:8px;border-radius:6px;margin-top:4px">${escapeHtml(String(v).substring(0, 600))}${v.length > 600 ? "…" : ""}</pre>` : `<span class="field-value">${escapeHtml(String(v))}</span>`;
+    html += `<div class="field-item auto" style="display:block;padding:10px 14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span class="field-label">${label}</span>
+        <span class="badge badge-auto">入力予定</span>
+        <span class="field-source" style="margin-left:auto;">${sources[k] || ""}</span>
+      </div>
+      ${preview}
+    </div>`;
+  }
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+async function doScanPreview() {
   const btn = document.getElementById("scan-btn");
   btn.disabled = true;
-  btn.textContent = "書類を読み取り中...";
+  btn.textContent = "読み取り中...";
   document.getElementById("scan-result").innerHTML = "";
 
   try {
     const res = await fetch("/api/jyunin/scan_docs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        hibikyo_record_id: currentData.record_id,
-        jyunin_record_id: currentJyuninData.jyunin_record_id,
-        customer_name: currentJyuninData.folder_name || currentData.customer_name,
-        box_folder_id: currentJyuninData.box_folder_id || null,
-        plaud_url: document.getElementById("plaud-url")?.value?.trim() || null,
-      }),
+      body: JSON.stringify(buildScanBody(true)),
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.detail || "読み取りエラー");
 
-    let html = `<div class="alert alert-success">${result.message}</div>`;
-    if (result.scanned && result.scanned.length > 0) {
-      html += `<p style="font-size:12px;color:#718096;margin-top:8px">スキャン済フォルダ: ${result.scanned.join("、")}</p>`;
+    scanPayload = result;
+
+    if (Object.keys(result.fields).length === 0) {
+      document.getElementById("scan-result").innerHTML =
+        `<div class="alert alert-warning">${result.message}</div>`;
+      return;
     }
-    if (Object.keys(result.fields).length > 0) {
-      const LABELS = {
-        "西暦3": "被相続人出生日", "address_0": "被相続人本籍", "文字列__1行__4": "戸主",
-        "被相続人から見た依頼者の続柄": "続柄", "西暦": "依頼者出生日",
-        "address_2": "依頼者本籍", "相続人": "相続人",
-      };
-      html += `<div class="field-list" style="margin-top:12px">`;
-      for (const [k, v] of Object.entries(result.fields)) {
-        html += `<div class="field-item auto">
-          <span class="field-label">${LABELS[k] || k} <span class="badge badge-auto">自動</span></span>
-          <span class="field-value">${v}</span>
-          <span class="field-source">${result.sources[k] || ""}</span>
-        </div>`;
-      }
-      html += `</div>`;
+
+    // プレビュー表示
+    renderScanFields(result.fields, result.sources, document.getElementById("scan-preview-fields"));
+
+    // スキップ項目
+    const skipArea = document.getElementById("scan-skipped-area");
+    if (result.skipped && Object.keys(result.skipped).length > 0) {
+      skipArea.innerHTML = `<p style="font-size:12px;color:#718096;">既入力のためスキップ（${Object.keys(result.skipped).length}件）: ${Object.keys(result.skipped).map(k => SCAN_LABELS[k]||k).join("、")}</p>`;
+    } else {
+      skipArea.innerHTML = "";
     }
-    document.getElementById("scan-result").innerHTML = html;
+
+    if (result.scanned?.length > 0) {
+      document.getElementById("scan-result").innerHTML =
+        `<p style="font-size:12px;color:#718096;">スキャン済フォルダ: ${result.scanned.join("、")}</p>`;
+    }
+
+    document.getElementById("step6-form").style.display = "none";
+    document.getElementById("step6-preview").style.display = "block";
   } catch (e) {
     document.getElementById("scan-result").innerHTML =
       `<div class="alert alert-error">エラー: ${e.message}</div>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = "BOX書類を読み取ってkintoneに追加入力する";
+    btn.textContent = "書類を読み取って入力内容を確認する";
+  }
+}
+
+function cancelScanPreview() {
+  document.getElementById("step6-form").style.display = "block";
+  document.getElementById("step6-preview").style.display = "none";
+  document.getElementById("scan-result").innerHTML = "";
+  scanPayload = null;
+}
+
+async function doScanConfirm() {
+  const btn = document.getElementById("scan-confirm-btn");
+  btn.disabled = true;
+  btn.textContent = "入力中...";
+
+  try {
+    const res = await fetch("/api/jyunin/scan_docs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildScanBody(false)),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.detail || "入力エラー");
+
+    document.getElementById("step6-preview").style.display = "none";
+    document.getElementById("step6-form").style.display = "block";
+
+    let html = `<div class="alert alert-success">${result.message}</div>`;
+    if (result.scanned?.length > 0) {
+      html += `<p style="font-size:12px;color:#718096;margin-top:4px">スキャン済フォルダ: ${result.scanned.join("、")}</p>`;
+    }
+    document.getElementById("scan-result").innerHTML = html;
+    document.getElementById("plaud-url").value = "";
+    scanPayload = null;
+  } catch (e) {
+    document.getElementById("scan-result").innerHTML =
+      `<div class="alert alert-error">エラー: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "kintoneに入力する";
   }
 }
 
@@ -660,6 +750,10 @@ function reset() {
   showAlert("step1-alert", "");
   document.getElementById("folder-result").innerHTML = "";
   document.getElementById("box-folder-area").style.display = "block";
+  document.getElementById("step6-form").style.display = "block";
+  document.getElementById("step6-preview").style.display = "none";
+  document.getElementById("scan-result").innerHTML = "";
+  scanPayload = null;
   window.scrollTo({ top: 0, behavior: "smooth" });
   currentData = null;
   currentJyuninData = null;
