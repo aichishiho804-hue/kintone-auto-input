@@ -652,7 +652,8 @@ async def find_box_folder_by_name(parent_id: str, name: str) -> Optional[str]:
         )
     if r.status_code == 200:
         for item in r.json().get("entries", []):
-            if item.get("name") == name and str(item.get("parent", {}).get("id")) == str(parent_id):
+            # parent IDは整数/文字列どちらで返ってくるかAPIバージョンによって異なるため str() で統一
+            if item.get("name") == name and str(item.get("parent", {}).get("id", "")).replace(" ", "") == str(parent_id).replace(" ", ""):
                 return item["id"]
     # フォールバック：ページネーション付きフォルダリスト
     async with httpx.AsyncClient(timeout=15) as client:
